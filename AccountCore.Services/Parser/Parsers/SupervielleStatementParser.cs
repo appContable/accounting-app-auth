@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
-using DAL = AccountCore.DAL.Parser.Models;
+using AccountCore.DAL.Parser.Models;
 using AccountCore.Services.Parser.Interfaces;
 
 namespace AccountCore.Services.Parser.Parsers
@@ -148,7 +148,7 @@ namespace AccountCore.Services.Parser.Parsers
             for (int i = 0; i < s.Length; i += size)
                 yield return s.Substring(i, Math.Min(size, s.Length - i));
         }
-        private static void EmitFindToWarnings(DAL.ParseResult result, string raw, params string[] terms)
+        private static void EmitFindToWarnings(ParseResult result, string raw, params string[] terms)
         {
             if (!DIAG_FIND_TERMS || terms == null || terms.Length == 0) return;
             var lines = (raw ?? "").Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
@@ -174,7 +174,7 @@ namespace AccountCore.Services.Parser.Parsers
                 }
             }
         }
-        private static void EmitRawSample(DAL.ParseResult result, string raw, int maxChunks = 8)
+        private static void EmitRawSample(ParseResult result, string raw, int maxChunks = 8)
         {
             if (!DIAG_RAW_SAMPLE) return;
             int idx = 0;
@@ -185,7 +185,7 @@ namespace AccountCore.Services.Parser.Parsers
             }
             result.Warnings.Add($"[raw] sample_chunks={Math.Min(idx, maxChunks)}, total_chars={raw?.Length ?? 0}");
         }
-        private static void EmitRawFull(DAL.ParseResult result, string raw)
+        private static void EmitRawFull(ParseResult result, string raw)
         {
             if (!DIAG_RAW_FULL) return;
             int idx = 0;
@@ -212,16 +212,16 @@ namespace AccountCore.Services.Parser.Parsers
             return res;
         }
 
-        public DAL.ParseResult Parse(string text, Action<IBankStatementParser.ProgressUpdate>? progress = null)
+        public ParseResult Parse(string text, Action<IBankStatementParser.ProgressUpdate>? progress = null)
         {
             _progress = progress;
 
-            var result = new DAL.ParseResult
+            var result = new ParseResult
             {
-                Statement = new DAL.BankStatement
+                Statement = new BankStatement
                 {
                     Bank = "Banco Supervielle",
-                    Accounts = new List<DAL.AccountStatement>()
+                    Accounts = new List<AccountStatement>()
                 },
                 Warnings = new List<string>()
             };
@@ -252,7 +252,7 @@ namespace AccountCore.Services.Parser.Parsers
 
                 var rawLines = region.Replace("\r", "").Split('\n');
 
-                var txs = new List<DAL.Transaction>(64);
+                var txs = new List<Transaction>(64);
                 DateTime? currentDate = null;
                 var fmts = new[] { "dd/MM/yy", "dd/MM/yyyy" };
 
@@ -351,7 +351,7 @@ namespace AccountCore.Services.Parser.Parsers
                             var originalDesc = string.Join(" | ", DedupSegments(blockDescParts));
                             var description  = Canonicalize(originalDesc);
 
-                            txs.Add(new DAL.Transaction
+                            txs.Add(new Transaction
                             {
                                 Date                = currentDate.Value,
                                 Description         = description,
@@ -378,7 +378,7 @@ namespace AccountCore.Services.Parser.Parsers
 
                 if (txs.Count > 0)
                 {
-                    result.Statement.Accounts.Add(new DAL.AccountStatement
+                    result.Statement.Accounts.Add(new AccountStatement
                     {
                         AccountNumber = accountNumber ?? "",
                         Transactions = txs

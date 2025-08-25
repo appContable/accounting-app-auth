@@ -10,7 +10,6 @@ using System.Globalization;
 
 using AccountCore.DAL.Parser.Models;                 // ParseResult, AccountStatement, Transaction, RulePatternType, UserCategoryRule, BankCategoryRule
 using AccountCore.Services.Parser.Interfaces;        // ICategorizationService, IUserCategoryRuleRepository, IBankCategoryRuleRepository
-using DAL = AccountCore.DAL.Parser.Models;
 namespace AccountCore.Services.Parser
 {
     public class CategorizationService : ICategorizationService
@@ -26,7 +25,7 @@ namespace AccountCore.Services.Parser
             _bankRepo = bankRepo;
         }
 
-        public async Task ApplyAsync(DAL.ParseResult result, string bank, string userId, CancellationToken cancellationToken)
+        public async Task ApplyAsync(ParseResult result, string bank, string userId, CancellationToken cancellationToken)
         {
             var bankKey = (bank ?? string.Empty).Trim();
 

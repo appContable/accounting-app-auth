@@ -10,7 +10,7 @@ using AccountCore.DTO.Parser;                 // UploadPdfRequest
 using AccountCore.DTO.Parser.Settings;        // UsageSettings
 using AccountCore.Services.Parser.Exceptions;
 using AccountCore.Services.Parser.Interfaces; // IPdfParsingService, ICategorizationService, IParseUsageRepository
-using DAL = AccountCore.DAL.Parser.Models;
+using AccountCore.DAL.Parser.Models;
 
 namespace AccountCore.API.Controllers
 {
@@ -44,7 +44,7 @@ namespace AccountCore.API.Controllers
         [HttpPost("parse")]
         [Consumes("multipart/form-data")]
         [SwaggerOperation(Summary = "Parsea un extracto PDF y categoriza (reglas banco + usuario)")]
-        [SwaggerResponse(StatusCodes.Status200OK, "Resultado del parseo", typeof(DAL.ParseResult))]
+        [SwaggerResponse(StatusCodes.Status200OK, "Resultado del parseo", typeof(ParseResult))]
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Solicitud inválida", typeof(string))]
         [SwaggerResponse(StatusCodes.Status429TooManyRequests, "Límite de uso alcanzado", typeof(string))]
         public async Task<IActionResult> Parse([FromForm] UploadPdfRequest req, CancellationToken ct)
@@ -60,7 +60,7 @@ namespace AccountCore.API.Controllers
             {
                 using var stream = req.File.OpenReadStream();
 
-                // 1) Parsear PDF (devuelve DAL.ParseResult)
+                // 1) Parsear PDF (devuelve ParseResult del DAL)
                 var result = await _parserService.ParseAsync(stream, req.Bank, req.UserId);
                 if (result == null) return BadRequest("No se pudo procesar el PDF.");
 
