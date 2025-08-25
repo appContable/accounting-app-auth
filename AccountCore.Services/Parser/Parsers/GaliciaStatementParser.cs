@@ -3,7 +3,7 @@ using System.Linq;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text.RegularExpressions;
-using DAL = AccountCore.DAL.Parser.Models;
+using AccountCore.DAL.Parser.Models;
 using AccountCore.Services.Parser.Interfaces;
 
 namespace AccountCore.Services.Parser.Parsers
@@ -57,7 +57,7 @@ namespace AccountCore.Services.Parser.Parsers
             for (int i = 0; i < s.Length; i += size)
                 yield return s.Substring(i, Math.Min(size, s.Length - i));
         }
-        private static void EmitRawFull(DAL.ParseResult result, string raw)
+        private static void EmitRawFull(ParseResult result, string raw)
         {
             if (!DIAG_RAW_FULL) return;
             var txt = (raw ?? "").Replace("\r\n", "\n").Replace('\r', '\n');
@@ -146,14 +146,14 @@ namespace AccountCore.Services.Parser.Parsers
             return decimal.Parse(tok, CultureInfo.InvariantCulture);
         }
 
-        public DAL.ParseResult Parse(string text, Action<IBankStatementParser.ProgressUpdate>? progress = null)
+        public ParseResult Parse(string text, Action<IBankStatementParser.ProgressUpdate>? progress = null)
         {
-            var result = new DAL.ParseResult
+            var result = new ParseResult
             {
-                Statement = new DAL.BankStatement
+                Statement = new BankStatement
                 {
                     Bank = "Banco Galicia",
-                    Accounts = new List<DAL.AccountStatement>()
+                    Accounts = new List<AccountStatement>()
                 },
                 Warnings = new List<string>()
             };
@@ -165,7 +165,7 @@ namespace AccountCore.Services.Parser.Parsers
 
             progress?.Invoke(new IBankStatementParser.ProgressUpdate("Detectando cuenta", 2, 6));
             var accountNumber = DetectAccountNumber(text) ?? "";
-            var account = new DAL.AccountStatement { AccountNumber = accountNumber };
+            var account = new AccountStatement { AccountNumber = accountNumber };
             result.Statement.Accounts.Add(account);
 
             progress?.Invoke(new IBankStatementParser.ProgressUpdate("Recortando movimientos", 3, 6));
@@ -253,7 +253,7 @@ namespace AccountCore.Services.Parser.Parsers
                         var balance = ParseEsMoney(balanceM.Value, out var bNeg); if (bNeg) balance = -balance;
 
                         var description = CanonicalizeDescription(string.Join(" | ", blockDescParts));
-                        txs.Add(new DAL.Transaction
+                        txs.Add(new Transaction
                         {
                             Date = currentDate.Value,
                             Description = string.IsNullOrWhiteSpace(description) ? "Movimiento" : description,

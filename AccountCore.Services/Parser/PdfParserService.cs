@@ -1,7 +1,6 @@
 using System.Text;
 using System.Text.RegularExpressions;
-// 👇 Alias para modelos del DAL
-using DAL = AccountCore.DAL.Parser.Models;
+using AccountCore.DAL.Parser.Models;
 
 using AccountCore.DTO.Parser.Settings;
 using AccountCore.Services.Parser.Exceptions;
@@ -34,13 +33,13 @@ namespace AccountCore.Services.Parser
         }
 
         // Firma original
-        public async Task<DAL.ParseResult?> ParseAsync(Stream pdfStream, string bank, string userId)
+        public async Task<ParseResult?> ParseAsync(Stream pdfStream, string bank, string userId)
         {
             return await ParseAsync(pdfStream, bank, userId, CancellationToken.None);
         }
 
         // Sobrecarga con CancellationToken
-        public async Task<DAL.ParseResult?> ParseAsync(Stream pdfStream, string bank, string userId, CancellationToken ct)
+        public async Task<ParseResult?> ParseAsync(Stream pdfStream, string bank, string userId, CancellationToken ct)
         {
             var now = DateTime.UtcNow;
             var start = new DateTime(now.Year, now.Month, 1);
@@ -74,7 +73,7 @@ namespace AccountCore.Services.Parser
             var result = parser.Parse(fullText);
             if (result != null)
             {
-                var usage = new DAL.ParseUsage { UserId = userId, Bank = bank, ParsedAt = DateTime.UtcNow };
+                var usage = new ParseUsage { UserId = userId, Bank = bank, ParsedAt = DateTime.UtcNow };
                 await _usageRepository.CreateAsync(usage);
             }
             return result;
