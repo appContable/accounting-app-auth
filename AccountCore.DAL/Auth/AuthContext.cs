@@ -25,7 +25,9 @@ namespace AccountCore.DAL.Auth.Models
         {
             if (!optionsBuilder.IsConfigured)
             {
-                optionsBuilder.UseMongoDB(_configuration["ConnectionString"], databaseName: _configuration["DatabaseId"]);
+                optionsBuilder.UseMongoDB(
+                    _configuration["MongoDB:ConnectionString"],
+                    databaseName: _configuration["MongoDB:Database"]);
             }
         }
 
