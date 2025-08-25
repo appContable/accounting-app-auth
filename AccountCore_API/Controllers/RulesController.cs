@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 using ParserDAL.Models;              // UserCategoryRule
 using ParserServices.Interfaces;     // IUserCategoryRuleRepository, ICategorizationService
 
-namespace Parser_API.Controllers
+namespace AccountCore_API.Controllers
 {
     /// <summary>
     /// Gestión de reglas de categorización de usuario (por banco).

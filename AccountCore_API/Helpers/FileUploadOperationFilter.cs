@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.OpenApi.Models;
 using Swashbuckle.AspNetCore.SwaggerGen;
 
-namespace Parser_API.Helpers
+namespace AccountCore_API.Helpers
 {
     public class FileUploadOperationFilter : IOperationFilter
     {

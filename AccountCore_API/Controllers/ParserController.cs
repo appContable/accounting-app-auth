@@ -12,7 +12,7 @@ using ParserServices.Exceptions;
 using ParserServices.Interfaces; // IPdfParsingService, ICategorizationService, IParseUsageRepository
 using DAL = ParserDAL.Models;
 
-namespace Parser_API.Controllers
+namespace AccountCore_API.Controllers
 {
     /// <summary>
     /// Endpoints de parseo y métricas de uso.
