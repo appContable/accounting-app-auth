@@ -13,6 +13,7 @@ using AccountCore.DTO.Auth.IServices.Result;
 using AccountCore.DTO.Auth.Entities.User;
 using System.Security.Cryptography;
 using Microsoft.AspNetCore.Mvc;
+using System;
 
 namespace AccountCore.Services.Auth.Services
 {
@@ -69,14 +70,13 @@ namespace AccountCore.Services.Auth.Services
                     var tokenHandler = new JwtSecurityTokenHandler();
 
                     // 2. Create Private Key to Encrypted
-                    var tokenKey = Encoding.ASCII.GetBytes(_configuration["JWT:Secret"]);
-
+                    var secret = _configuration["JWT:Secret"] ?? throw new InvalidOperationException("JWT:Secret missing");
+                    var tokenKey = Encoding.ASCII.GetBytes(secret);
 
                     // For now there is only one login per user
                     var fullName = string.Empty;
 
                     fullName = $"{user.FirstName} {user.LastName}";
-
 
                     var claims = new List<Claim>()
                 {
@@ -104,11 +104,13 @@ namespace AccountCore.Services.Auth.Services
                         }
                     }
 
-                    //3. Create JETdescriptor
+                    var tokenValidityInMinutesValue = _configuration["JWT:TokenValidityInMinutes"] ?? throw new InvalidOperationException("JWT:TokenValidityInMinutes missing");
+                    _ = int.TryParse(tokenValidityInMinutesValue, out int tokenValidityInMinutes);
+
                     var tokenDescriptor = new SecurityTokenDescriptor()
                     {
                         Subject = new ClaimsIdentity(claims),
-                        Expires = DateTime.UtcNow.AddMinutes(int.Parse(_configuration["JWT:TokenValidityInMinutes"])),
+                        Expires = DateTime.UtcNow.AddMinutes(tokenValidityInMinutes),
                         SigningCredentials = new SigningCredentials(
                             new SymmetricSecurityKey(tokenKey), SecurityAlgorithms.HmacSha256Signature),
                     };
@@ -118,7 +120,8 @@ namespace AccountCore.Services.Auth.Services
                     //5. Create RefreshToken
                     var refreshToken = GenerateRefreshToken();
 
-                    _ = int.TryParse(_configuration["JWT:RefreshTokenValidityInDays"], out int refreshTokenValidityInDays);
+                    var refreshTokenValidityInDaysValue = _configuration["JWT:RefreshTokenValidityInDays"] ?? throw new InvalidOperationException("JWT:RefreshTokenValidityInDays missing");
+                    _ = int.TryParse(refreshTokenValidityInDaysValue, out int refreshTokenValidityInDays);
 
                     // Si el token esta expirado lo actualizo, sino solo cambio la fecha
                     if (user.RefreshTokenExpiryTime < DateTime.UtcNow || string.IsNullOrEmpty(user.RefreshToken))
@@ -170,6 +173,11 @@ namespace AccountCore.Services.Auth.Services
                 var newAccessToken = CreateToken(principal.Identities.FirstOrDefault().Claims.ToList());
                 var newRefreshToken = GenerateRefreshToken();
 
+                var refreshTokenValidityInDaysValue = _configuration["JWT:RefreshTokenValidityInDays"] ?? throw new InvalidOperationException("JWT:RefreshTokenValidityInDays missing");
+                _ = int.TryParse(refreshTokenValidityInDaysValue, out int refreshTokenValidityInDays);
+                var tokenValidityInMinutesValue = _configuration["JWT:TokenValidityInMinutes"] ?? throw new InvalidOperationException("JWT:TokenValidityInMinutes missing");
+                _ = int.TryParse(tokenValidityInMinutesValue, out int tokenValidityInMinutes);
+
                 var user = new User();
                 using (var dbcontext = new AuthContext(_configuration))
                 {
@@ -181,7 +189,6 @@ namespace AccountCore.Services.Auth.Services
                     }
 
                     //5. Create RefreshToken
-                    _ = int.TryParse(_configuration["JWT:RefreshTokenValidityInDays"], out int refreshTokenValidityInDays);
 
                     if (user.RefreshTokenExpiryTime > DateTime.UtcNow)
                     {
@@ -207,7 +214,7 @@ namespace AccountCore.Services.Auth.Services
                 fullName = $"{user.FirstName} {user.LastName}";
 
                 // 6. Return Token from method
-                var returnToken = new ReturnTokenDTO() { Token = new JwtSecurityTokenHandler().WriteToken(newAccessToken), Expire = DateTime.UtcNow.AddMinutes(int.Parse(_configuration["JWT:TokenValidityInMinutes"])), Roles = user.Roles.Select(r => r.RoleKey), LoginId = user.Id, FullName = fullName, RefreshToken = newRefreshToken };
+                var returnToken = new ReturnTokenDTO() { Token = new JwtSecurityTokenHandler().WriteToken(newAccessToken), Expire = DateTime.UtcNow.AddMinutes(tokenValidityInMinutes), Roles = user.Roles.Select(r => r.RoleKey), LoginId = user.Id, FullName = fullName, RefreshToken = newRefreshToken };
 
 
                 return ServiceResult<ReturnTokenDTO>.Ok(returnToken);
@@ -262,7 +269,7 @@ namespace AccountCore.Services.Auth.Services
                     await dbcontext.SaveChangesAsync();
                 }
 
-                var urlBase = _configuration["UiUrlBase"];
+                var urlBase = _configuration["UiUrlBase"] ?? throw new InvalidOperationException("UiUrlBase missing");
 
                 var link = $"{urlBase}set-new-password?UserId={userId}&code={token}";
 
@@ -335,12 +342,18 @@ namespace AccountCore.Services.Auth.Services
 
         private JwtSecurityToken CreateToken(List<Claim> authClaims)
         {
-            var authSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["JWT:Secret"]));
-            _ = int.TryParse(_configuration["JWT:TokenValidityInMinutes"], out int tokenValidityInMinutes);
+            var secret = _configuration["JWT:Secret"] ?? throw new InvalidOperationException("JWT:Secret missing");
+            var authSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret));
+
+            var tokenValidityInMinutesValue = _configuration["JWT:TokenValidityInMinutes"] ?? throw new InvalidOperationException("JWT:TokenValidityInMinutes missing");
+            _ = int.TryParse(tokenValidityInMinutesValue, out int tokenValidityInMinutes);
+
+            var issuer = _configuration["JWT:ValidIssuer"] ?? throw new InvalidOperationException("JWT:ValidIssuer missing");
+            var audience = _configuration["JWT:ValidAudience"] ?? throw new InvalidOperationException("JWT:ValidAudience missing");
 
             var token = new JwtSecurityToken(
-                issuer: _configuration["JWT:ValidIssuer"],
-                audience: _configuration["JWT:ValidAudience"],
+                issuer: issuer,
+                audience: audience,
                 expires: DateTime.Now.AddMinutes(tokenValidityInMinutes),
                 claims: authClaims,
                 signingCredentials: new SigningCredentials(authSigningKey, SecurityAlgorithms.HmacSha256)
@@ -359,12 +372,13 @@ namespace AccountCore.Services.Auth.Services
 
         private ClaimsPrincipal? GetPrincipalFromExpiredToken(string? token)
         {
+            var secret = _configuration["JWT:Secret"] ?? throw new InvalidOperationException("JWT:Secret missing");
             var tokenValidationParameters = new TokenValidationParameters
             {
                 ValidateAudience = false,
                 ValidateIssuer = false,
                 ValidateIssuerSigningKey = true,
-                IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["JWT:Secret"])),
+                IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret)),
                 ValidateLifetime = false
             };
 
