@@ -10,6 +10,7 @@ using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using Swashbuckle.AspNetCore.Annotations;
 
 namespace AccountCore_API.Controllers
 {
@@ -28,6 +29,7 @@ namespace AccountCore_API.Controllers
 
         [AllowAnonymous]
         [HttpPost("authentication")]
+        [SwaggerOperation(Summary = "Authenticate user and generate JWT token")]
         public async Task<IActionResult> Authentication([FromBody] AuthenticationDTO user)
         {
             var token = await _authService.Authentication(user.Email, user.Password);
@@ -41,6 +43,7 @@ namespace AccountCore_API.Controllers
         }
 
         [HttpPost("SetNewPassword/{userId}/{codeBase64}")]
+        [SwaggerOperation(Summary = "Confirm password reset with verification code")]
         public async Task<IActionResult> SetNewPassword(string userId, string codeBase64, SetPasswordDTO setPasswordDTO)
         {
             var token = await _authService.SetNewPassword(userId, codeBase64, setPasswordDTO);
@@ -54,6 +57,7 @@ namespace AccountCore_API.Controllers
         }
 
         [HttpPost("ResetPassword")]
+        [SwaggerOperation(Summary = "Send password reset instructions to email")]
         public async Task<IActionResult> ResetPassword([FromForm] string email)
         {
             var token = await _authService.ResetPassword(email);
@@ -68,6 +72,7 @@ namespace AccountCore_API.Controllers
 
         [HttpPost]
         [Route("refresh-token")]
+        [SwaggerOperation(Summary = "Refresh JWT using a valid refresh token")]
         public async Task<IActionResult> RefreshToken(TokenModelDTO tokenModel)
         {
             if (tokenModel is null)
