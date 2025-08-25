@@ -8,7 +8,7 @@ using System.Security.Claims;
 using AccountCore.DTO.Auth.Entities.User;
 using Swashbuckle.AspNetCore.Annotations;
 
-namespace AccountCore_API.Controllers
+namespace AccountCore.API.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]

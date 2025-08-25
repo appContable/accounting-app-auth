@@ -1,6 +1,6 @@
-# Parser API
+# AccountCore Parser API
 
-Parser API is a .NET 8 Web API for processing uploaded bank statement PDFs and
+AccountCore Parser API is a .NET 8 Web API for processing uploaded bank statement PDFs and
 storing the parsed transactions in MongoDB Atlas.
 
 ## Project goals
@@ -17,17 +17,17 @@ storing the parsed transactions in MongoDB Atlas.
 
 ## Project structure
 
-- **Parser_API** – ASP.NET Core Web API project that exposes endpoints for uploading and parsing bank statements.
-- **ParserServices** – contains the business logic for parsing PDFs and coordinating persistence operations.
-- **ParserDAL** – data access layer responsible for reading from and writing to MongoDB.
-- **ParserDTO** – shared data transfer objects and configuration settings used across projects.
+- **AccountCore.API** – ASP.NET Core Web API project that exposes endpoints for uploading and parsing bank statements.
+- **AccountCore.Services.Parser** – contains the business logic for parsing PDFs and coordinating persistence operations.
+- **AccountCore.DAL.Parser** – data access layer responsible for reading from and writing to MongoDB.
+- **AccountCore.DTO.Parser** – shared data transfer objects and configuration settings used across projects.
 
 ### Data flow
 
-1. A controller in **Parser_API** receives the request.
-2. The controller invokes the appropriate service in **ParserServices**.
-3. The service calls **ParserDAL** to persist or retrieve data.
-4. **ParserDAL** interacts with MongoDB to complete the operation.
+1. A controller in **AccountCore.API** receives the request.
+2. The controller invokes the appropriate service in **AccountCore.Services.Parser**.
+3. The service calls **AccountCore.DAL.Parser** to persist or retrieve data.
+4. **AccountCore.DAL.Parser** interacts with MongoDB to complete the operation.
 
 ```
 Controller → Service → DAL → MongoDB

@@ -1,7 +1,7 @@
 ﻿using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
-namespace AccountCore_API.Auth
+namespace AccountCore.API.Auth
 {
     public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
     {

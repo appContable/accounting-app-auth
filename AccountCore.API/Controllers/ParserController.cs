@@ -12,7 +12,7 @@ using AccountCore.Services.Parser.Exceptions;
 using AccountCore.Services.Parser.Interfaces; // IPdfParsingService, ICategorizationService, IParseUsageRepository
 using DAL = AccountCore.DAL.Parser.Models;
 
-namespace AccountCore_API.Controllers
+namespace AccountCore.API.Controllers
 {
     /// <summary>
     /// Endpoints de parseo y métricas de uso.

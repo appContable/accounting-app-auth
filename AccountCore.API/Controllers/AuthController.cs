@@ -1,4 +1,4 @@
-using AccountCore_API.Auth;
+using AccountCore.API.Auth;
 using AccountCore.DTO.Auth.Entities;
 using AccountCore.DTO.Auth.Entities.User;
 using AccountCore.DTO.Auth.IServices;
@@ -12,7 +12,7 @@ using System.Security.Claims;
 using System.Text;
 using Swashbuckle.AspNetCore.Annotations;
 
-namespace AccountCore_API.Controllers
+namespace AccountCore.API.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
