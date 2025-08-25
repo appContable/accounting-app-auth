@@ -19,12 +19,12 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\AccountCore.DAL\Auth\AuthDAL.csproj" />
-    <ProjectReference Include="..\AccountCore.DTO\Auth\AuthDTO.csproj" />
-    <ProjectReference Include="..\AccountCore.Services\Auth\AuthServices.csproj" />
-    <ProjectReference Include="..\AccountCore.Services\Parser\ParserServices.csproj" />
-    <ProjectReference Include="..\AccountCore.DTO\Parser\ParserDTO.csproj" />
-    <ProjectReference Include="..\AccountCore.DAL\Parser\ParserDAL.csproj" />
+    <ProjectReference Include="..\AccountCore.DAL\Auth\AccountCore.DAL.Auth.csproj" />
+    <ProjectReference Include="..\AccountCore.DTO\Auth\AccountCore.DTO.Auth.csproj" />
+    <ProjectReference Include="..\AccountCore.Services\Auth\AccountCore.Services.Auth.csproj" />
+    <ProjectReference Include="..\AccountCore.Services\Parser\AccountCore.Services.Parser.csproj" />
+    <ProjectReference Include="..\AccountCore.DTO\Parser\AccountCore.DTO.Parser.csproj" />
+    <ProjectReference Include="..\AccountCore.DAL\Parser\AccountCore.DAL.Parser.csproj" />
   </ItemGroup>
 
 </Project>

@@ -13,8 +13,8 @@ using AccountCore.Services.Parser.Interfaces;
 using AccountCore.Services.Parser.Repositories;
 using System.Text;
 using System.Text.Json.Serialization;
-using AccountCore_API.Auth;
-using AccountCore_API.Helpers;
+using AccountCore.API.Auth;
+using AccountCore.API.Helpers;
 
 var builder = WebApplication.CreateBuilder(args);
 

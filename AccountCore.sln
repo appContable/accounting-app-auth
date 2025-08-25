@@ -2,19 +2,19 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.11.35222.181
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AccountCore_API", "AccountCore_API\\AccountCore_API.csproj", "{66A515F8-F583-4210-A257-51DD0BB08EC5}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AccountCore.API", "AccountCore.API\\AccountCore.API.csproj", "{66A515F8-F583-4210-A257-51DD0BB08EC5}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AuthServices", "AccountCore.Services\Auth\AuthServices.csproj", "{72535A07-AA9F-4069-9A1B-3B722F95D0A7}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AccountCore.Services.Auth", "AccountCore.Services\Auth\AccountCore.Services.Auth.csproj", "{72535A07-AA9F-4069-9A1B-3B722F95D0A7}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AuthDTO", "AccountCore.DTO\Auth\AuthDTO.csproj", "{9845ACE5-DC2B-4BF7-8D41-2E50385490F1}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AccountCore.DTO.Auth", "AccountCore.DTO\Auth\AccountCore.DTO.Auth.csproj", "{9845ACE5-DC2B-4BF7-8D41-2E50385490F1}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AuthDAL", "AccountCore.DAL\Auth\AuthDAL.csproj", "{1FCA2FAE-3B97-4878-A8CB-ED9F0F75834C}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AccountCore.DAL.Auth", "AccountCore.DAL\Auth\AccountCore.DAL.Auth.csproj", "{1FCA2FAE-3B97-4878-A8CB-ED9F0F75834C}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ParserServices", "AccountCore.Services\Parser\ParserServices.csproj", "{AEFC837B-9433-49D8-AC91-CBC56E46C800}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AccountCore.Services.Parser", "AccountCore.Services\Parser\AccountCore.Services.Parser.csproj", "{AEFC837B-9433-49D8-AC91-CBC56E46C800}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ParserDAL", "AccountCore.DAL\Parser\ParserDAL.csproj", "{4F565C73-74F7-45FD-8532-9FF84D1049EE}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AccountCore.DAL.Parser", "AccountCore.DAL\Parser\AccountCore.DAL.Parser.csproj", "{4F565C73-74F7-45FD-8532-9FF84D1049EE}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ParserDTO", "AccountCore.DTO\Parser\ParserDTO.csproj", "{535464C3-EC2C-4AB6-9AF2-F723A9FBFF58}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AccountCore.DTO.Parser", "AccountCore.DTO\Parser\AccountCore.DTO.Parser.csproj", "{535464C3-EC2C-4AB6-9AF2-F723A9FBFF58}"
 EndProject
 Global
     GlobalSection(SolutionConfigurationPlatforms) = preSolution

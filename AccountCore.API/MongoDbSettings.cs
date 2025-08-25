@@ -1,4 +1,4 @@
-namespace AccountCore_API
+namespace AccountCore.API
 {
     public class MongoDbSettings
     {

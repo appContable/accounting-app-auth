@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 using AccountCore.DAL.Parser.Models;              // UserCategoryRule
 using AccountCore.Services.Parser.Interfaces;     // IUserCategoryRuleRepository, ICategorizationService
 
-namespace AccountCore_API.Controllers
+namespace AccountCore.API.Controllers
 {
     /// <summary>
     /// Gestión de reglas de categorización de usuario (por banco).

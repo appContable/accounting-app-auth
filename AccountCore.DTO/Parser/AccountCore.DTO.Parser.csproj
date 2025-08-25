@@ -10,6 +10,6 @@
     <PackageReference Include="Swashbuckle.AspNetCore.Annotations" Version="9.0.3" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../../AccountCore.DAL/Parser/ParserDAL.csproj" />
+    <ProjectReference Include="../../AccountCore.DAL/Parser/AccountCore.DAL.Parser.csproj" />
   </ItemGroup>
 </Project>

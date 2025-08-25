@@ -9,7 +9,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace AccountCore_API.HostedServices
+namespace AccountCore.API.HostedServices
 {
     public class RuleSeederHostedService : IHostedService
     {

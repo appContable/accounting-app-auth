@@ -1,21 +1,21 @@
-# Accounting App · Auth API
-Authentication and authorization backend for the Accounting App. Manages login for end-users using JWT tokens.
+# AccountCore
 
-## Tech Stack
-- Node.js
-- TypeScript
-- Express
-- JWT (jsonwebtoken)
-- bcrypt for password hashing
+AccountCore is a .NET 8 backend that combines authentication and PDF parsing services.
+The solution file **AccountCore.sln** includes several projects:
 
-## Structure
-- `controllers/`: auth handlers
-- `services/`: user and token logic
-- `models/`: user schema & interfaces
-- `middlewares/`: auth guards and validators
-- `routes/`: login and token endpoints
+- `AccountCore.API` – ASP.NET Core Web API entry point
+- `AccountCore.Services.Auth` and `AccountCore.Services.Parser`
+- `AccountCore.DAL.Auth` and `AccountCore.DAL.Parser`
+- `AccountCore.DTO.Auth` and `AccountCore.DTO.Parser`
 
-## Auth Flow
-- `POST /auth/login`: user login
-- `GET /auth/me`: validate JWT token
-- (No user registration via UI — users created via script)
+## Build
+
+```bash
+dotnet build AccountCore.sln
+```
+
+## Run
+
+```bash
+dotnet run --project AccountCore.API/AccountCore.API.csproj
+```

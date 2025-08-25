@@ -16,8 +16,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\AccountCore.DAL\Auth\AuthDAL.csproj" />
-    <ProjectReference Include="..\..\AccountCore.DTO\Auth\AuthDTO.csproj" />
+    <ProjectReference Include="..\..\AccountCore.DAL\Auth\AccountCore.DAL.Auth.csproj" />
+    <ProjectReference Include="..\..\AccountCore.DTO\Auth\AccountCore.DTO.Auth.csproj" />
   </ItemGroup>
 
 </Project>
