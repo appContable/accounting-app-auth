@@ -58,7 +58,8 @@ builder.Services.AddScoped<IPdfParsingService, PdfParserService>();
 Microsoft.Extensions.Configuration.ConfigurationManager configuration = builder.Configuration;
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseMongoDB(configuration["ConnectionString"], configuration["DatabaseId"]));
+    options.UseMongoDB(configuration["MongoDB:ConnectionString"],
+                      configuration["MongoDB:Database"]));
 
 builder.Services.AddIdentity<ApplicationUser, IdentityRole>()
     .AddEntityFrameworkStores<ApplicationDbContext>()
