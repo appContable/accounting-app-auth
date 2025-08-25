@@ -71,7 +71,7 @@ namespace AccountCore.DAL.Auth.Models
 
         public void RegistryLoginFail()
         {
-            FailedLoginCount = FailedLoginCount++;
+            FailedLoginCount++;
             LastLoginFail = DateTime.UtcNow;
 
             IsLock = FailedLoginCount > 10;
@@ -91,7 +91,7 @@ namespace AccountCore.DAL.Auth.Models
                 return;
             }
 
-            using (var deriveBytes = new Rfc2898DeriveBytes(confirmPassword, 20))
+            using (var deriveBytes = new Rfc2898DeriveBytes(confirmPassword, 20, 100000, HashAlgorithmName.SHA256))
             {
                 Salt = deriveBytes.Salt;
                 BPassword = deriveBytes.GetBytes(20);  // derive a 20-byte key
@@ -112,7 +112,7 @@ namespace AccountCore.DAL.Auth.Models
                 return false;
             }
 
-            using (var deriveBytes = new Rfc2898DeriveBytes(password, Salt))
+            using (var deriveBytes = new Rfc2898DeriveBytes(password, Salt, 100000, HashAlgorithmName.SHA256))
             {
                 byte[] newKey = deriveBytes.GetBytes(20);  // derive a 20-byte key
 
