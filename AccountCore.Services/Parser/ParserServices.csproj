@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>AccountCore.Services.Parser</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="MongoDB.Driver" Version="2.19.2" />
+    <PackageReference Include="UglyToad.PdfPig" Version="1.7.0-custom-5" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../AccountCore.DAL/Parser/ParserDAL.csproj" />
+    <ProjectReference Include="../../AccountCore.DTO/Parser/ParserDTO.csproj" />
+  </ItemGroup>
+</Project>

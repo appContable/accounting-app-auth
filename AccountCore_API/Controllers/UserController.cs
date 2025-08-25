@@ -1,11 +1,11 @@
-﻿using AuthDTO.Entities;
-using AuthDTO.Parameters;
-using AuthDTO.IServices;
+﻿using AccountCore.DTO.Auth.Entities;
+using AccountCore.DTO.Auth.Parameters;
+using AccountCore.DTO.Auth.IServices;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
-using AuthDTO.Entities.User;
+using AccountCore.DTO.Auth.Entities.User;
 
 namespace AccountCore_API.Controllers
 {

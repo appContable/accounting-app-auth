@@ -5,8 +5,8 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
-using ParserDAL.Models;              // UserCategoryRule
-using ParserServices.Interfaces;     // IUserCategoryRuleRepository, ICategorizationService
+using AccountCore.DAL.Parser.Models;              // UserCategoryRule
+using AccountCore.Services.Parser.Interfaces;     // IUserCategoryRuleRepository, ICategorizationService
 
 namespace AccountCore_API.Controllers
 {
@@ -62,7 +62,7 @@ namespace AccountCore_API.Controllers
         [SwaggerResponse(StatusCodes.Status200OK, "Regla guardada")]
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Datos inválidos")]
         public async Task<IActionResult> Learn(
-            [FromBody] ParserDTO.Parameters.LearnRuleRequest body,
+            [FromBody] AccountCore.DTO.Parser.Parameters.LearnRuleRequest body,
             CancellationToken ct = default)
         {
             if (string.IsNullOrWhiteSpace(body.UserId) ||
