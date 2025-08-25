@@ -8,11 +8,11 @@
 
         public IEnumerable<string>? Roles { get; set; }
 
-        public string LoginId { get; set; }
+        public string LoginId { get; set; } = string.Empty;
 
-        public string FullName { get; set; }
+        public string FullName { get; set; } = string.Empty;
 
-        public string RefreshToken { get; set; }
+        public string RefreshToken { get; set; } = string.Empty;
 
     }
 }
