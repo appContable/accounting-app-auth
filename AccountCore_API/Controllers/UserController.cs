@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 using AccountCore.DTO.Auth.Entities.User;
+using Swashbuckle.AspNetCore.Annotations;
 
 namespace AccountCore_API.Controllers
 {
@@ -25,6 +26,7 @@ namespace AccountCore_API.Controllers
 
         [HttpGet]
         [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme, Roles = $"{ClaimsPrincipalExtensions.AdminRole}")]
+        [SwaggerOperation(Summary = "Retrieve a user by id")]
         public async Task<IActionResult> Get(string id)
         {
             var response = await _userService.GetById(id);
@@ -41,6 +43,7 @@ namespace AccountCore_API.Controllers
         [HttpGet]
         [Route("Find")]
         [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme, Roles = $"{ClaimsPrincipalExtensions.AdminRole}")]
+        [SwaggerOperation(Summary = "Find users matching the search value")]
         public async Task<IActionResult> Find(string? value)
         {
             var response = await _userService.Find(value);
@@ -56,6 +59,7 @@ namespace AccountCore_API.Controllers
 
         [HttpPost]
         [AllowAnonymous]
+        [SwaggerOperation(Summary = "Create a new user")]
         public async Task<IActionResult> Post([FromBody] UserPostDTO userDTO)
         {
             var response = await _userService.Create(userDTO);
@@ -71,6 +75,7 @@ namespace AccountCore_API.Controllers
         [HttpPut]
         [Route("{userId}")]
         [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme, Roles = $"{ClaimsPrincipalExtensions.AdminRole}")]
+        [SwaggerOperation(Summary = "Update an existing user")]
         public async Task<IActionResult> Put(string userId, [FromBody] UserPostDTO userDto)
         {
             var response = await _userService.Update(userId, userDto);
@@ -86,6 +91,7 @@ namespace AccountCore_API.Controllers
         [HttpDelete]
         [Route("{userId}")]
         [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme, Roles = $"{ClaimsPrincipalExtensions.AdminRole}")]
+        [SwaggerOperation(Summary = "Delete a user by id")]
         public async Task<IActionResult> Delete(string userId)
         {
             var response = await _userService.Delete(userId);
@@ -101,6 +107,7 @@ namespace AccountCore_API.Controllers
         [HttpPatch]
         [Route("Enable/{userId}")]
         [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme, Roles = $"{ClaimsPrincipalExtensions.AdminRole}")]
+        [SwaggerOperation(Summary = "Enable a user account")]
         public async Task<IActionResult> Enable(string userId)
         {
             var response = await _userService.Enable(userId);
@@ -116,6 +123,7 @@ namespace AccountCore_API.Controllers
         [HttpPatch]
         [Route("Disable/{userId}")]
         [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme, Roles = $"{ClaimsPrincipalExtensions.AdminRole}")]
+        [SwaggerOperation(Summary = "Disable a user account")]
         public async Task<IActionResult> Disable(string userId)
         {
             var response = await _userService.Disable(userId);
