@@ -1,8 +1,8 @@
 using AccountCore_API.Auth;
-using AuthDTO.Entities;
-using AuthDTO.Entities.User;
-using AuthDTO.IServices;
-using AuthDTO.ReturnsModels;
+using AccountCore.DTO.Auth.Entities;
+using AccountCore.DTO.Auth.Entities.User;
+using AccountCore.DTO.Auth.IServices;
+using AccountCore.DTO.Auth.ReturnsModels;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;

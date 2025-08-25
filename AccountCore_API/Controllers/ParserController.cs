@@ -6,11 +6,11 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 
-using ParserDTO;                 // UploadPdfRequest
-using ParserDTO.Settings;        // UsageSettings
-using ParserServices.Exceptions;
-using ParserServices.Interfaces; // IPdfParsingService, ICategorizationService, IParseUsageRepository
-using DAL = ParserDAL.Models;
+using AccountCore.DTO.Parser;                 // UploadPdfRequest
+using AccountCore.DTO.Parser.Settings;        // UsageSettings
+using AccountCore.Services.Parser.Exceptions;
+using AccountCore.Services.Parser.Interfaces; // IPdfParsingService, ICategorizationService, IParseUsageRepository
+using DAL = AccountCore.DAL.Parser.Models;
 
 namespace AccountCore_API.Controllers
 {

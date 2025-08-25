@@ -1,9 +1,9 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using ParserDAL.Models;
-using ParserDTO.Settings;
-using ParserServices.Interfaces;
+using AccountCore.DAL.Parser.Models;
+using AccountCore.DTO.Parser.Settings;
+using AccountCore.Services.Parser.Interfaces;
 using System;
 using System.Linq;
 using System.Threading;
