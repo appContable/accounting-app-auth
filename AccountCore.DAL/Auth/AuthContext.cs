@@ -9,7 +9,7 @@ namespace AccountCore.DAL.Auth.Models
 {
     public partial class AuthContext : DbContext
     {
-        private readonly IConfiguration _configuration;
+        private readonly IConfiguration? _configuration;
 
         public AuthContext(IConfiguration configuration)
         {
@@ -25,9 +25,24 @@ namespace AccountCore.DAL.Auth.Models
         {
             if (!optionsBuilder.IsConfigured)
             {
-                optionsBuilder.UseMongoDB(
-                    _configuration["MongoDB:ConnectionString"],
-                    databaseName: _configuration["MongoDB:Database"]);
+                if (_configuration == null)
+                {
+                    throw new InvalidOperationException("Configuration is required to configure MongoDB.");
+                }
+
+                var connectionString = _configuration["MongoDB:ConnectionString"];
+                if (string.IsNullOrWhiteSpace(connectionString))
+                {
+                    throw new InvalidOperationException("MongoDB:ConnectionString configuration is missing or empty.");
+                }
+
+                var databaseName = _configuration["MongoDB:Database"];
+                if (string.IsNullOrWhiteSpace(databaseName))
+                {
+                    throw new InvalidOperationException("MongoDB:Database configuration is missing or empty.");
+                }
+
+                optionsBuilder.UseMongoDB(connectionString, databaseName: databaseName);
             }
         }
 
