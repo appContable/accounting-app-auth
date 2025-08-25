@@ -1,5 +1,5 @@
 ﻿using Microsoft.AspNetCore.Identity;
-namespace Auth_API.Auth
+namespace AccountCore_API.Auth
 {
     public class ApplicationUser : IdentityUser
     {

@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 using AuthDTO.Entities.User;
 
-namespace Auth_API.Controllers
+namespace AccountCore_API.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]

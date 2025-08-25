@@ -10,17 +10,21 @@
     <PackageReference Include="AutoMapper" Version="14.0.0" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.17" />
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="8.0.17" />
-    <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.8" />
     <PackageReference Include="MongoDB.EntityFrameworkCore" Version="8.3.0" />
-    <PackageReference Include="Swashbuckle.AspNetCore.Swagger" Version="8.1.4" />
-    <PackageReference Include="Swashbuckle.AspNetCore.SwaggerGen" Version="8.1.4" />
-    <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" Version="8.1.4" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.17" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="9.0.3" />
+    <PackageReference Include="Swashbuckle.AspNetCore.Annotations" Version="9.0.3" />
+    <PackageReference Include="Swashbuckle.AspNetCore.Newtonsoft" Version="9.0.3" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\AuthDAL\AuthDAL.csproj" />
     <ProjectReference Include="..\AuthDTO\AuthDTO.csproj" />
     <ProjectReference Include="..\AuthServices\AuthServices.csproj" />
+    <ProjectReference Include="..\ParserServices\ParserServices.csproj" />
+    <ProjectReference Include="..\ParserDTO\ParserDTO.csproj" />
+    <ProjectReference Include="..\ParserDAL\ParserDAL.csproj" />
   </ItemGroup>
 
 </Project>

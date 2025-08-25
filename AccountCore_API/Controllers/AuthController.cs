@@ -1,4 +1,4 @@
-﻿using Auth_API.Auth;
+using AccountCore_API.Auth;
 using AuthDTO.Entities;
 using AuthDTO.Entities.User;
 using AuthDTO.IServices;
@@ -11,7 +11,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 
-namespace Auth_API.Controllers
+namespace AccountCore_API.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
