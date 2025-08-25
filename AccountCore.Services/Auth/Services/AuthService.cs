@@ -163,14 +163,20 @@ namespace AccountCore.Services.Auth.Services
 
 
                 var principal = GetPrincipalFromExpiredToken(accessToken);
-                if (principal == null)
+                if (principal?.Identity == null)
+                {
+                    return ServiceResult<ReturnTokenDTO>.Error(Errors.ErrorsKey.Argument, "Invalid access token or refresh token");
+                }
+
+                var principalIdentity = principal.Identities.FirstOrDefault();
+                if (principalIdentity == null)
                 {
                     return ServiceResult<ReturnTokenDTO>.Error(Errors.ErrorsKey.Argument, "Invalid access token or refresh token");
                 }
 
                 string username = principal.Identity.Name ?? string.Empty;
 
-                var newAccessToken = CreateToken(principal.Identities.FirstOrDefault().Claims.ToList());
+                var newAccessToken = CreateToken(principalIdentity.Claims.ToList());
                 var newRefreshToken = GenerateRefreshToken();
 
                 var refreshTokenValidityInDaysValue = _configuration["JWT:RefreshTokenValidityInDays"] ?? throw new InvalidOperationException("JWT:RefreshTokenValidityInDays missing");
