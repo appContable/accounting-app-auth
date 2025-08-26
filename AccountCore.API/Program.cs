@@ -37,17 +37,20 @@ builder.Services.Configure<MongoDbSettings>(builder.Configuration.GetSection("Mo
 builder.Services.Configure<UsageSettings>(builder.Configuration.GetSection("Usage"));
 //builder.Services.Configure<BankRulesSettings>(builder.Configuration.GetSection("BankRules"));
 
-builder.Services.AddSingleton<IMongoClient>(sp =>
+var connectionString = builder.Configuration["MongoDB:ConnectionString"] ?? "mongodb://localhost:27017";
+var mongoSettings = MongoClientSettings.FromConnectionString(connectionString);
+var guidProperty = typeof(MongoClientSettings).GetProperty("GuidRepresentation");
+if (guidProperty is not null)
 {
-    var cs = builder.Configuration["MongoDB:ConnectionString"] ?? "mongodb://localhost:27017";
-    var settings = MongoClientSettings.FromConnectionString(cs);
-    var guidProp = typeof(MongoClientSettings).GetProperty("GuidRepresentation");
-    if (guidProp is not null)
-    {
-        guidProp.SetValue(settings, GuidRepresentation.Standard);
-    }
-    return new MongoClient(settings);
-});
+    guidProperty.SetValue(mongoSettings, GuidRepresentation.Standard);
+}
+var defaultsGuidProperty = typeof(MongoDefaults).GetProperty("GuidRepresentation");
+if (defaultsGuidProperty is not null)
+{
+    defaultsGuidProperty.SetValue(null, GuidRepresentation.Standard);
+}
+
+builder.Services.AddSingleton<IMongoClient>(sp => new MongoClient(mongoSettings));
 builder.Services.AddScoped<IMongoDatabase>(sp =>
 {
     var client = sp.GetRequiredService<IMongoClient>();
