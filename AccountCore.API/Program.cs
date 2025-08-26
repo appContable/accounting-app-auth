@@ -39,9 +39,6 @@ builder.Services.Configure<UsageSettings>(builder.Configuration.GetSection("Usag
 
 var connectionString = builder.Configuration["MongoDB:ConnectionString"] ?? "mongodb://localhost:27017";
 var mongoSettings = MongoClientSettings.FromConnectionString(connectionString);
-BsonDefaults.GuidRepresentationMode = GuidRepresentationMode.V3;
-mongoSettings.GuidRepresentation = GuidRepresentation.Standard;
-MongoDefaults.GuidRepresentation = GuidRepresentation.Standard;
 
 builder.Services.AddSingleton<IMongoClient>(sp => new MongoClient(mongoSettings));
 builder.Services.AddScoped<IMongoDatabase>(sp =>
