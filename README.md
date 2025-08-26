@@ -32,3 +32,37 @@ MONGO_URI="<connection-string>" MONGO_DB="<database>" dotnet run --project Accou
 
 After running the migration the API continues to read all documents using the standard
 representation.
+
+## Contributing
+
+When adding models or repository methods that work with `Guid` fields, ensure MongoDB
+uses the standard UUID representation (`GuidRepresentation.Standard`, binary subtype
+`4`).
+
+- **Models** – Decorate every `Guid` property with
+  `[BsonGuidRepresentation(GuidRepresentation.Standard)]` so that values are
+  serialized correctly.
+
+  ```csharp
+  using MongoDB.Bson;
+  using MongoDB.Bson.Serialization.Attributes;
+
+  public class ExampleEntity
+  {
+      [BsonId]
+      [BsonGuidRepresentation(GuidRepresentation.Standard)]
+      public Guid Id { get; set; }
+  }
+  ```
+
+- **Repositories** – Configure the Mongo client to use the same representation before
+  accessing collections.
+
+  ```csharp
+  var settings = MongoClientSettings.FromConnectionString(connectionString);
+  settings.GuidRepresentation = GuidRepresentation.Standard;
+  var client = new MongoClient(settings);
+  var collection = client.GetDatabase("mydb").GetCollection<ExampleEntity>("entities");
+  ```
+
+Following these guidelines keeps all `Guid` values compatible across the application.
