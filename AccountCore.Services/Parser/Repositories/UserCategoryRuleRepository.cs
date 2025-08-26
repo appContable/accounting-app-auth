@@ -26,6 +26,8 @@ namespace AccountCore.Services.Parser.Repositories
                 return;
             }
 
+            if (rule.Id == Guid.Empty) rule.Id = Guid.NewGuid();
+
             // Si no hay Id, matcheamos por (userId, bank, pattern)
             var filter = Builders<UserCategoryRule>.Filter.Where(x =>
                 x.UserId == rule.UserId &&
