@@ -22,7 +22,7 @@ namespace AccountCore.DAL.Parser.Models
         public string? CategorySource { get; set; }
 
         /// <summary>Id de la regla aplicada si corresponde</summary>
-        [BsonGuidRepresentation(GuidRepresentation.Standard)]
+        [BsonGuidRepresentation(GuidRepresentation.CSharpLegacy)]
         public Guid? CategoryRuleId { get; set; }
         
         
