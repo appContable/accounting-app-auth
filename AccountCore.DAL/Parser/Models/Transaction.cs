@@ -1,6 +1,8 @@
 // AccountCore.DAL.Parser/Models/BankStatement.cs
 using System;
 using System.Collections.Generic;
+using MongoDB.Bson;
+using MongoDB.Bson.Serialization.Attributes;
 
 namespace AccountCore.DAL.Parser.Models
 {
@@ -20,6 +22,7 @@ namespace AccountCore.DAL.Parser.Models
         public string? CategorySource { get; set; }
 
         /// <summary>Id de la regla aplicada si corresponde</summary>
+        [BsonGuidRepresentation(GuidRepresentation.Standard)]
         public Guid? CategoryRuleId { get; set; }
         
         
