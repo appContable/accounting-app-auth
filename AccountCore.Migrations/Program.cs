@@ -11,12 +11,7 @@ public static class Program
     {
         var connectionString = Environment.GetEnvironmentVariable("MONGO_URI") ?? "mongodb://localhost:27017";
         var databaseName = Environment.GetEnvironmentVariable("MONGO_DB") ?? "parserdb";
-
-        BsonDefaults.GuidRepresentationMode = GuidRepresentationMode.V3;
         var settings = MongoClientSettings.FromConnectionString(connectionString);
-        settings.GuidRepresentation = GuidRepresentation.Standard;
-        MongoDefaults.GuidRepresentation = GuidRepresentation.Standard;
-
         var client = new MongoClient(settings);
         var db = client.GetDatabase(databaseName);
 
