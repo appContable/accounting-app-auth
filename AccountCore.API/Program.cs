@@ -16,6 +16,7 @@ using System.Text;
 using System.Text.Json.Serialization;
 using AccountCore.API.Auth;
 using AccountCore.API.Helpers;
+using Microsoft.Extensions.Logging;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -42,7 +43,14 @@ BsonDefaults.GuidRepresentationMode = GuidRepresentationMode.V2;
 var settings = MongoClientSettings.FromConnectionString(connectionString);
 settings.GuidRepresentation = GuidRepresentation.CSharpLegacy;
 
-builder.Services.AddSingleton<IMongoClient>(sp => new MongoClient(settings));
+builder.Services.AddSingleton<IMongoClient>(sp =>
+{
+    var client = new MongoClient(settings);
+    var logger = sp.GetRequiredService<ILogger<Program>>();
+    logger.LogInformation("BsonDefaults.GuidRepresentationMode: {Mode}", BsonDefaults.GuidRepresentationMode);
+    logger.LogInformation("MongoClient Settings.GuidRepresentation: {GuidRepresentation}", client.Settings.GuidRepresentation);
+    return client;
+});
 builder.Services.AddScoped<IMongoDatabase>(sp =>
 {
     var client = sp.GetRequiredService<IMongoClient>();
