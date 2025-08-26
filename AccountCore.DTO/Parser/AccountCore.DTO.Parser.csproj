@@ -1,15 +1,15 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
-    <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <RootNamespace>AccountCore.DTO.Parser</RootNamespace>
+    <Nullable>enable</Nullable>
   </PropertyGroup>
+
   <ItemGroup>
-    <FrameworkReference Include="Microsoft.AspNetCore.App" />
-    <PackageReference Include="Swashbuckle.AspNetCore.Annotations" Version="9.0.3" />
+    <PackageReference Include="Swashbuckle.AspNetCore.Annotations" />
   </ItemGroup>
+
   <ItemGroup>
-    <ProjectReference Include="../../AccountCore.DAL/Parser/AccountCore.DAL.Parser.csproj" />
+    <ProjectReference Include="..\..\AccountCore.DAL\Parser\AccountCore.DAL.Parser.csproj" />
   </ItemGroup>
 </Project>

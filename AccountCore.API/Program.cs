@@ -7,22 +7,40 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using MongoDB.Bson;
+using MongoDB.Bson.Serialization;
+using MongoDB.Bson.Serialization.Serializers;
 using MongoDB.Driver;
 using AccountCore.DTO.Parser.Settings;
 using AccountCore.Services.Parser;
 using AccountCore.Services.Parser.Interfaces;
 using AccountCore.Services.Parser.Repositories;
+using AccountCore.DAL.Parser.Models;
 using System.Text;
 using System.Text.Json.Serialization;
 using AccountCore.API.Auth;
 using AccountCore.API.Helpers;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging;
+
+//
+// ---- Fix GUID legacy para UserCategoryRule (Mongo driver) ----
+if (!BsonClassMap.IsClassMapRegistered(typeof(UserCategoryRule)))
+{
+    BsonClassMap.RegisterClassMap<UserCategoryRule>(cm =>
+    {
+        cm.AutoMap();
+        cm.MapMember(x => x.Id)
+          .SetSerializer(new GuidSerializer(GuidRepresentation.CSharpLegacy));
+    });
+}
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Controllers + JSON
 builder.Services.AddControllers().AddJsonOptions(x =>
     x.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles);
 
+// Swagger
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(o =>
 {
@@ -30,27 +48,25 @@ builder.Services.AddSwaggerGen(o =>
     o.EnableAnnotations();
 });
 
+// AutoMapper + Servicios Auth
 builder.Services.AddAutoMapper(typeof(Program));
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 
+// Configs
 builder.Services.Configure<MongoDbSettings>(builder.Configuration.GetSection("MongoDB"));
 builder.Services.Configure<UsageSettings>(builder.Configuration.GetSection("Usage"));
-//builder.Services.Configure<BankRulesSettings>(builder.Configuration.GetSection("BankRules"));
 
-var connectionString = builder.Configuration["MongoDB:ConnectionString"] ?? "mongodb://localhost:27017";
-BsonDefaults.GuidRepresentationMode = GuidRepresentationMode.V2;
-var settings = MongoClientSettings.FromConnectionString(connectionString);
-settings.GuidRepresentation = GuidRepresentation.CSharpLegacy;
+// ---- Mongo Driver (para Parser repos) ----
+var connStr = builder.Configuration["MongoDB:ConnectionString"] ?? "mongodb://localhost:27017";
+var mongoSettings = MongoClientSettings.FromConnectionString(connStr);
 
 builder.Services.AddSingleton<IMongoClient>(sp =>
 {
-    var client = new MongoClient(settings);
     var logger = sp.GetRequiredService<ILogger<Program>>();
-    logger.LogInformation("BsonDefaults.GuidRepresentationMode: {Mode}", BsonDefaults.GuidRepresentationMode);
-    logger.LogInformation("MongoClient Settings.GuidRepresentation: {GuidRepresentation}", client.Settings.GuidRepresentation);
-    return client;
+    return new MongoClient(mongoSettings);
 });
+
 builder.Services.AddScoped<IMongoDatabase>(sp =>
 {
     var client = sp.GetRequiredService<IMongoClient>();
@@ -58,6 +74,7 @@ builder.Services.AddScoped<IMongoDatabase>(sp =>
     return client.GetDatabase(dbName);
 });
 
+// ---- Repos/servicios del Parser ----
 builder.Services.AddScoped<IParseUsageRepository, ParseUsageRepository>();
 builder.Services.AddScoped<IUserCategoryRuleRepository, UserCategoryRuleRepository>();
 builder.Services.AddScoped<IBankCategoryRuleRepository, BankCategoryRuleRepository>();
@@ -65,16 +82,20 @@ builder.Services.AddScoped<IBankRulesProvider, MongoBankRulesProvider>();
 builder.Services.AddScoped<ICategorizationService, CategorizationService>();
 builder.Services.AddScoped<IPdfParsingService, PdfParserService>();
 
-Microsoft.Extensions.Configuration.ConfigurationManager configuration = builder.Configuration;
-
+// ==============================
+//   Identity con EF InMemory
+//   (quitamos EF-Mongo)
+// ==============================
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseMongoDB(configuration["MongoDB:ConnectionString"],
-                      configuration["MongoDB:Database"]));
+    options.UseInMemoryDatabase("AuthDb"));
 
-builder.Services.AddIdentity<ApplicationUser, IdentityRole>()
+builder.Services
+    .AddIdentity<ApplicationUser, IdentityRole>()
     .AddEntityFrameworkStores<ApplicationDbContext>()
     .AddDefaultTokenProviders();
 
+// JWT
+var configuration = builder.Configuration;
 builder.Services.AddAuthentication(options =>
 {
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -91,24 +112,24 @@ builder.Services.AddAuthentication(options =>
         ValidateAudience = false,
         ValidateLifetime = true,
         ClockSkew = TimeSpan.Zero,
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.ASCII.GetBytes(configuration["JWT:Secret"]))
+        IssuerSigningKey = new SymmetricSecurityKey(
+            Encoding.ASCII.GetBytes(configuration["JWT:Secret"] ?? "dev-secret-change-me"))
     };
 });
 
+// CORS
 builder.Services.AddCors(p => p.AddPolicy("corsapp", policy =>
 {
     policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader();
 }));
 
-var config = new MapperConfiguration(cfg =>
-{
-    cfg.AddProfile(new MappingProfile());
-});
-var mapper = config.CreateMapper();
-builder.Services.AddSingleton(mapper);
+// Automapper singleton
+var mapperConfig = new MapperConfiguration(cfg => cfg.AddProfile(new MappingProfile()));
+builder.Services.AddSingleton(mapperConfig.CreateMapper());
 
 var app = builder.Build();
 
+// Middleware
 app.UseCors("corsapp");
 app.UseSwagger();
 app.UseSwaggerUI();
@@ -123,6 +144,4 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
-
 app.Run();
-
