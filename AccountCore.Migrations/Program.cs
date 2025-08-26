@@ -2,67 +2,84 @@ using System;
 using System.Threading.Tasks;
 using MongoDB.Bson;
 using MongoDB.Driver;
-using AccountCore.DAL.Parser.Models;
 
-namespace AccountCore.Migrations
+namespace AccountCore.Migrations;
+
+public static class Program
 {
-    public static class Program
+    public static async Task Main(string[] args)
     {
-        public static async Task Main(string[] args)
+        var connectionString = Environment.GetEnvironmentVariable("MONGO_URI") ?? "mongodb://localhost:27017";
+        var databaseName = Environment.GetEnvironmentVariable("MONGO_DB") ?? "parserdb";
+
+        BsonDefaults.GuidRepresentationMode = GuidRepresentationMode.V3;
+        var settings = MongoClientSettings.FromConnectionString(connectionString);
+        settings.GuidRepresentation = GuidRepresentation.Standard;
+        MongoDefaults.GuidRepresentation = GuidRepresentation.Standard;
+
+        var client = new MongoClient(settings);
+        var db = client.GetDatabase(databaseName);
+
+        await MigrateUserCategoryRules(db);
+
+        Console.WriteLine("Guid migration completed.");
+    }
+
+    private static async Task MigrateUserCategoryRules(IMongoDatabase db)
+    {
+        var collection = db.GetCollection<BsonDocument>("userCategoryRules");
+        var documents = await collection.Find(FilterDefinition<BsonDocument>.Empty).ToListAsync();
+
+        foreach (var document in documents)
         {
-            var connectionString = Environment.GetEnvironmentVariable("MONGO_URI") ?? "mongodb://localhost:27017";
-            var databaseName = Environment.GetEnvironmentVariable("MONGO_DB") ?? "parserdb";
-
-            var settings = MongoClientSettings.FromConnectionString(connectionString);
-            var guidProperty = typeof(MongoClientSettings).GetProperty("GuidRepresentation");
-            if (guidProperty is not null)
-            {
-                guidProperty.SetValue(settings, GuidRepresentation.Standard);
-            }
-            var defaultsGuidProperty = typeof(MongoDefaults).GetProperty("GuidRepresentation");
-            if (defaultsGuidProperty is not null)
-            {
-                defaultsGuidProperty.SetValue(null, GuidRepresentation.Standard);
-            }
-
-            var client = new MongoClient(settings);
-            var db = client.GetDatabase(databaseName);
-
-            await MigrateUserCategoryRules(db);
-            await MigrateTransactions(db);
-
-            Console.WriteLine("Guid migration completed.");
+            var originalId = document.GetValue("_id");
+            RewriteLegacyGuids(document);
+            await collection.ReplaceOneAsync(new BsonDocument("_id", originalId), document);
         }
+    }
 
-        private static async Task MigrateUserCategoryRules(IMongoDatabase db)
+    private static void RewriteLegacyGuids(BsonValue value)
+    {
+        if (value is BsonDocument doc)
         {
-            var col = db.GetCollection<BsonDocument>("userCategoryRules");
-            var docs = await col.Find(FilterDefinition<BsonDocument>.Empty).ToListAsync();
-            foreach (var doc in docs)
+            foreach (var element in doc.Elements.ToList())
             {
-                var id = doc.GetValue("_id", BsonNull.Value);
-                if (id.BsonType == BsonType.Binary && id.AsBsonBinaryData.SubType == BsonBinarySubType.UuidLegacy)
-                {
-                    var guid = id.AsGuid;
-                    doc["_id"] = new BsonBinaryData(guid, GuidRepresentation.Standard);
-                    await col.ReplaceOneAsync(new BsonDocument("_id", id), doc);
-                }
+                doc[element.Name] = ConvertValue(element.Value);
             }
         }
-
-        private static async Task MigrateTransactions(IMongoDatabase db)
+        else if (value is BsonArray array)
         {
-            var col = db.GetCollection<BsonDocument>("transactions");
-            var docs = await col.Find(FilterDefinition<BsonDocument>.Empty).ToListAsync();
-            foreach (var doc in docs)
+            for (var i = 0; i < array.Count; i++)
             {
-                if (doc.TryGetValue("CategoryRuleId", out var val) && val.BsonType == BsonType.Binary && val.AsBsonBinaryData.SubType == BsonBinarySubType.UuidLegacy)
-                {
-                    var guid = val.AsGuid;
-                    doc["CategoryRuleId"] = new BsonBinaryData(guid, GuidRepresentation.Standard);
-                    await col.ReplaceOneAsync(new BsonDocument("_id", doc["_id"]), doc);
-                }
+                array[i] = ConvertValue(array[i]);
             }
         }
     }
+
+    private static BsonValue ConvertValue(BsonValue value)
+    {
+        if (value is BsonDocument doc)
+        {
+            RewriteLegacyGuids(doc);
+            return doc;
+        }
+
+        if (value is BsonArray array)
+        {
+            for (var i = 0; i < array.Count; i++)
+            {
+                array[i] = ConvertValue(array[i]);
+            }
+            return array;
+        }
+
+        if (value.BsonType == BsonType.Binary && value.AsBsonBinaryData.SubType == BsonBinarySubType.UuidLegacy)
+        {
+            var guid = value.AsBsonBinaryData.ToGuid(GuidRepresentation.CSharpLegacy);
+            return new BsonBinaryData(guid, GuidRepresentation.Standard);
+        }
+
+        return value;
+    }
 }
+
