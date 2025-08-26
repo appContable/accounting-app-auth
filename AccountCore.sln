@@ -18,6 +18,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AccountCore.DTO.Parser", "A
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AccountCore.Migrations", "AccountCore.Migrations\AccountCore.Migrations.csproj", "{6439EEED-9FFC-4FEF-AA8B-94F165A6F15B}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AccountCore.DAL.Parser.Tests", "AccountCore.DAL.Parser.Tests\AccountCore.DAL.Parser.Tests.csproj", "{A5FE11D9-09D3-474E-BBD5-9D29268841A1}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -56,6 +58,10 @@ Global
 		{6439EEED-9FFC-4FEF-AA8B-94F165A6F15B}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{6439EEED-9FFC-4FEF-AA8B-94F165A6F15B}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{6439EEED-9FFC-4FEF-AA8B-94F165A6F15B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A5FE11D9-09D3-474E-BBD5-9D29268841A1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A5FE11D9-09D3-474E-BBD5-9D29268841A1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A5FE11D9-09D3-474E-BBD5-9D29268841A1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A5FE11D9-09D3-474E-BBD5-9D29268841A1}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
