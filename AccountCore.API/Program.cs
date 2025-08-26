@@ -38,9 +38,11 @@ builder.Services.Configure<UsageSettings>(builder.Configuration.GetSection("Usag
 //builder.Services.Configure<BankRulesSettings>(builder.Configuration.GetSection("BankRules"));
 
 var connectionString = builder.Configuration["MongoDB:ConnectionString"] ?? "mongodb://localhost:27017";
-var mongoSettings = MongoClientSettings.FromConnectionString(connectionString);
+BsonDefaults.GuidRepresentationMode = GuidRepresentationMode.V2;
+var settings = MongoClientSettings.FromConnectionString(connectionString);
+settings.GuidRepresentation = GuidRepresentation.CSharpLegacy;
 
-builder.Services.AddSingleton<IMongoClient>(sp => new MongoClient(mongoSettings));
+builder.Services.AddSingleton<IMongoClient>(sp => new MongoClient(settings));
 builder.Services.AddScoped<IMongoDatabase>(sp =>
 {
     var client = sp.GetRequiredService<IMongoClient>();
