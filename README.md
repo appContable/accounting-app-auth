@@ -39,6 +39,31 @@ MongoDefaults.GuidRepresentation = GuidRepresentation.Standard;
 builder.Services.AddSingleton<IMongoClient>(sp => new MongoClient(mongoSettings));
 ```
 
+### Legacy UUID compatibility
+
+#### Legacy vs. standard subtypes
+
+MongoDB recognizes two UUID binary subtypes.
+
+* **Legacy (`CSharpLegacy`)** – stored as binary subtype `3` with a little-endian layout specific to the old .NET driver.
+* **Standard** – stored as binary subtype `4` using the RFC 4122 byte order shared by modern drivers.
+
+Mixing subtypes in the same collection results in unreadable `Guid` values across services.
+
+#### Hotfix: enable legacy mode
+
+If existing collections still rely on the legacy format, the API can temporarily
+switch back for compatibility:
+
+```csharp
+var mongoSettings = MongoClientSettings.FromConnectionString(connectionString);
+mongoSettings.GuidRepresentation = GuidRepresentation.CSharpLegacy;
+MongoDefaults.GuidRepresentation = GuidRepresentation.CSharpLegacy;
+BsonDefaults.GuidRepresentationMode = GuidRepresentationMode.V2;
+```
+
+Restart the service after applying this change.
+
 #### Migrating existing data
 
 Collections created with the legacy representation need to be migrated. Use the
@@ -49,6 +74,18 @@ MONGO_URI="<connection-string>" MONGO_DB="<database>" dotnet run --project Accou
 ```
 
 After migration the API will read all documents using the standard representation.
+
+#### Switch back to standard mode
+
+Once the migration completes, revert the hotfix configuration:
+
+```csharp
+mongoSettings.GuidRepresentation = GuidRepresentation.Standard;
+MongoDefaults.GuidRepresentation = GuidRepresentation.Standard;
+BsonDefaults.GuidRepresentationMode = GuidRepresentationMode.V3;
+```
+
+Redeploy the service so all new `Guid` values use the standard subtype.
 
 ## Contributing
 
