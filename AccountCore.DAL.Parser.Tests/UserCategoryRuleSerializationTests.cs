@@ -20,12 +20,12 @@ public class UserCategoryRuleSerializationTests : IDisposable
         var guidProperty = typeof(MongoClientSettings).GetProperty("GuidRepresentation");
         if (guidProperty is not null)
         {
-            guidProperty.SetValue(settings, GuidRepresentation.Standard);
+            guidProperty.SetValue(settings, GuidRepresentation.CSharpLegacy);
         }
         var defaultsGuidProperty = typeof(MongoDefaults).GetProperty("GuidRepresentation");
         if (defaultsGuidProperty is not null)
         {
-            defaultsGuidProperty.SetValue(null, GuidRepresentation.Standard);
+            defaultsGuidProperty.SetValue(null, GuidRepresentation.CSharpLegacy);
         }
         var client = new MongoClient(settings);
         _db = client.GetDatabase("testdb");
