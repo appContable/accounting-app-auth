@@ -10,7 +10,13 @@ using Microsoft.EntityFrameworkCore;
 using Auth_API.Auth;
 using Microsoft.AspNetCore.Identity;
 using System.ComponentModel.Design;
+using MongoDB.Bson;
+using MongoDB.Bson.Serialization;
+using MongoDB.Bson.Serialization.Serializers;
 var builder = WebApplication.CreateBuilder(args);
+
+// Configure MongoDB to use the standard Guid representation
+BsonSerializer.RegisterSerializer(new GuidSerializer(GuidRepresentation.Standard));
 
 // Add services to the container.
 

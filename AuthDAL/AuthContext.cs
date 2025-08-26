@@ -4,6 +4,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.Extensions.Configuration;
 using MongoDB.EntityFrameworkCore.Extensions;
+using MongoDB.Bson;
+using MongoDB.Bson.Serialization;
+using MongoDB.Bson.Serialization.Serializers;
 
 namespace AuthDAL.Models
 {
@@ -23,6 +26,11 @@ namespace AuthDAL.Models
 
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {
+            if (BsonSerializer.LookupSerializer<Guid>() is not GuidSerializer { GuidRepresentation: GuidRepresentation.Standard })
+            {
+                BsonSerializer.RegisterSerializer(new GuidSerializer(GuidRepresentation.Standard));
+            }
+
             if (!optionsBuilder.IsConfigured)
             {
                 optionsBuilder.UseMongoDB(_configuration["ConnectionString"], databaseName: _configuration["DatabaseId"]);
