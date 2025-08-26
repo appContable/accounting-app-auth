@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using MongoDB.Bson;
 using MongoDB.Driver;
 using AccountCore.DTO.Parser.Settings;
 using AccountCore.Services.Parser;
@@ -39,7 +40,13 @@ builder.Services.Configure<UsageSettings>(builder.Configuration.GetSection("Usag
 builder.Services.AddSingleton<IMongoClient>(sp =>
 {
     var cs = builder.Configuration["MongoDB:ConnectionString"] ?? "mongodb://localhost:27017";
-    return new MongoClient(cs);
+    var settings = MongoClientSettings.FromConnectionString(cs);
+    var guidProp = typeof(MongoClientSettings).GetProperty("GuidRepresentation");
+    if (guidProp is not null)
+    {
+        guidProp.SetValue(settings, GuidRepresentation.Standard);
+    }
+    return new MongoClient(settings);
 });
 builder.Services.AddScoped<IMongoDatabase>(sp =>
 {

@@ -7,6 +7,7 @@ namespace AccountCore.DAL.Parser.Models
 {
     public class UserCategoryRule
     {
+        [BsonGuidRepresentation(GuidRepresentation.Standard)]
         public Guid Id { get; set; }
 
         [Required, MaxLength(128)]
