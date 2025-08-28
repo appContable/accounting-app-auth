@@ -8,10 +8,10 @@ on:
     - master
 env:
   AZURE_WEBAPP_NAME: account-app-api
-  AZURE_WEBAPP_PACKAGE_PATH: AccountCore\publish
+  AZURE_WEBAPP_PACKAGE_PATH: AccountCore.API\publish
   CONFIGURATION: Release
   DOTNET_CORE_VERSION: 8.0.x
-  WORKING_DIRECTORY: AccountCore
+  WORKING_DIRECTORY: AccountCore.API
 jobs:
   build:
     runs-on: windows-latest
