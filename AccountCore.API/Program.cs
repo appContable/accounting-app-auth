@@ -77,6 +77,8 @@ builder.Services.AddScoped<IMongoDatabase>(sp =>
 // ---- Repos/servicios del Parser ----
 builder.Services.AddScoped<IParseUsageRepository, ParseUsageRepository>();
 builder.Services.AddScoped<IUserCategoryRuleRepository, UserCategoryRuleRepository>();
+// Hosted service para índices Mongo
+builder.Services.AddHostedService<MongoIndexHostedService>();
 builder.Services.AddScoped<IBankCategoryRuleRepository, BankCategoryRuleRepository>();
 builder.Services.AddScoped<IBankRulesProvider, MongoBankRulesProvider>();
 builder.Services.AddScoped<ICategorizationService, CategorizationService>();
@@ -116,6 +118,8 @@ builder.Services.AddAuthentication(options =>
             Encoding.ASCII.GetBytes(configuration["JWT:Secret"] ?? "dev-secret-change-me"))
     };
 });
+
+
 
 // CORS
 builder.Services.AddCors(p => p.AddPolicy("corsapp", policy =>
