@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Para IOptions<T> y Bind de settings -->
+    <PackageReference Include="Microsoft.Extensions.Options" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
+    <!-- Acceso a Mongo desde los repos de Parser -->
+    <PackageReference Include="MongoDB.Driver" />
+    <!-- PDF -->
+    <PackageReference Include="UglyToad.PdfPig" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\AccountCore.DTO\Parser\AccountCore.DTO.Parser.csproj" />
+    <ProjectReference Include="..\..\AccountCore.DAL\Parser\AccountCore.DAL.Parser.csproj" />
+  </ItemGroup>
+</Project>

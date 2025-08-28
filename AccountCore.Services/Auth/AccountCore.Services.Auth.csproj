@@ -1,0 +1,26 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!-- Usa los ensamblados del shared framework de ASP.NET Core 8 -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Paquetes que realmente usa este proyecto (la versión la pone Packages.props) -->
+    <PackageReference Include="AutoMapper" />
+    <PackageReference Include="Microsoft.IdentityModel.Tokens" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
+    <!-- Si NO usas explícitamente estas libs aquí, puedes quitarlas -->
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Rutas correctas (desde /AccountCore.Services/Auth/...) -->
+    <ProjectReference Include="..\..\AccountCore.DTO\Auth\AccountCore.DTO.Auth.csproj" />
+    <ProjectReference Include="..\..\AccountCore.DAL\Auth\AccountCore.DAL.Auth.csproj" />
+  </ItemGroup>
+</Project>
