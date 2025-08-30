@@ -51,6 +51,96 @@ namespace AccountCore.Services.Parser.Parsers
             (Rx(@"\bD\.A\. ?AL\s*VTO\b",     RegexOptions.IgnoreCase), "D.A. AL VTO"),
         };
 
+        // Helper: extrae el "final" del pie de tabla (Total ... $ ... $ ... $ <final>)
+        private static decimal? TryExtractFinalFromTotal(string full)
+        {
+            var rx = Rx(@"(?im)Total\s*\$\s*[^\n$]*\$\s*[^\n$]*\$\s*(?<f>-?\d{1,3}(?:[.\s]?\d{3})*,\s*\d{2}|-?\d+,\s*\d{2})");
+            var m = rx.Match(full);
+            if (!m.Success) return null;
+            var d = ParseEsMoney(m.Groups["f"].Value, out var neg);
+            return neg ? -d : d;
+        }
+
+        // Helper: toma los dos importes del bloque "Saldos" sin asumir orden
+        private static (decimal? v1, decimal? v2) TryExtractTwoFromSaldos(string full)
+        {
+            var rx = Rx(@"(?ims)Saldos?\b.*?(?<v1>-?\d{1,3}(?:[.\s]?\d{3})*,\s*\d{2}|-?\d+,\s*\d{2}).*?(?<v2>-?\d{1,3}(?:[.\s]?\d{3})*,\s*\d{2}|-?\d+,\s*\d{2})");
+            var m = rx.Match(full);
+            if (!m.Success) return (null, null);
+
+            decimal? p1 = ParseEsMoney(m.Groups["v1"].Value, out var n1);
+            decimal? p2 = ParseEsMoney(m.Groups["v2"].Value, out var n2);
+            if (n1) p1 = -p1;
+            if (n2) p2 = -p2;
+            return (p1, p2);
+        }
+
+        // Decide apertura/cierre usando "Total final" o último balance como ancla
+        private static (decimal? opening, decimal? closing) TryExtractBalancesSmart(string full, decimal? lastBalance)
+        {
+            var (v1, v2) = TryExtractTwoFromSaldos(full);
+            if (v1 is null && v2 is null)
+                return (null, null);
+
+            // 1) Ancla con el Total del pie (más confiable)
+            var finalFromTotal = TryExtractFinalFromTotal(full);
+            if (finalFromTotal is not null && v1 is not null && v2 is not null)
+            {
+                var d1 = Math.Abs(finalFromTotal.Value - v1.Value);
+                var d2 = Math.Abs(finalFromTotal.Value - v2.Value);
+                if (d1 <= d2) return (v2, v1); // v1 es final ⇒ opening=v2, closing=v1
+                else return (v1, v2);          // v2 es final ⇒ opening=v1, closing=v2
+            }
+
+            // 2) Si no hay "Total", anclá con el último balance de movimientos (si existe)
+            if (lastBalance is not null && v1 is not null && v2 is not null)
+            {
+                var d1 = Math.Abs(lastBalance.Value - v1.Value);
+                var d2 = Math.Abs(lastBalance.Value - v2.Value);
+                if (d1 <= d2) return (v2, v1);
+                else return (v1, v2);
+            }
+
+            // 3) Fallback: si solo encontraste uno, asumilo como closing
+            if (v1 is not null && v2 is null) return (null, v1);
+            if (v2 is not null && v1 is null) return (null, v2);
+
+            // 4) Último fallback conservador: asumir orden típico "Inicial, Final"
+            return (v1, v2);
+        }
+
+        // === NUEVO ===
+        // Recalcula cada Amount a partir del balance acumulado y corrige outliers
+        private static void ReconcileAmountsWithRunningBalance(AccountStatement account, ParseResult result)
+        {
+            var txs = account.Transactions;
+            if (txs == null || txs.Count == 0) return;
+
+            for (int i = 0; i < txs.Count; i++)
+            {
+                decimal inferred;
+
+                if (i == 0 && account.OpeningBalance.HasValue)
+                {
+                    inferred = Math.Round(txs[0].Balance - account.OpeningBalance.Value, 2);
+                }
+                else if (i > 0)
+                {
+                    inferred = Math.Round(txs[i].Balance - txs[i - 1].Balance, 2);
+                }
+                else continue;
+
+                if (Math.Abs(inferred - txs[i].Amount) > 0.01m)
+                {
+                    var old = txs[i].Amount;
+                    txs[i].Amount = inferred;
+                    txs[i].Type = inferred >= 0 ? "credit" : "debit";
+                    result.Warnings.Add($"[amount-reconciled] {txs[i].Date:yyyy-MM-dd} '{txs[i].Description}' old={old} new={inferred}");
+                }
+            }
+        }
+        // === /NUEVO ===
+
         private static IEnumerable<string> Chunk(string s, int size)
         {
             if (string.IsNullOrEmpty(s)) yield break;
@@ -278,16 +368,47 @@ namespace AccountCore.Services.Parser.Parsers
                 }
             }
 
+            var lastBalance = txs.Count > 0 ? txs[^1].Balance : (decimal?)null;
+
+            // Usa el método "smart" para saldos
+            var (openingFromHeader, closingFromHeader) = TryExtractBalancesSmart(text, lastBalance);
+
+            // Asignación con fallbacks
+            decimal? closing = closingFromHeader ?? lastBalance;
+            decimal? opening = openingFromHeader;
+
+            // Si apertura no vino del header, inferila desde el primer movimiento
+            if (opening is null && txs.Count > 0)
+                opening = txs[0].Balance - txs[0].Amount;
+
+            // Guardo en la cuenta
+            account.OpeningBalance = opening;
+            account.ClosingBalance = closing;
+
+            // === NUEVO: reconciliar montos con running balance ===
+            ReconcileAmountsWithRunningBalance(account, result);
+            // === /NUEVO ===
+
+            // (Sanity) Validar que opening + suma(amounts) ~= closing
+            if (opening is not null && closing is not null && txs.Count > 0)
+            {
+                var net = txs.Sum(t => t.Amount);
+                if (Math.Abs((opening.Value + net) - closing.Value) > 0.02m)
+                    result.Warnings.Add($"[balances] Inconsistencia: opening+net != closing (Δ={(opening.Value + net - closing.Value):0.00})");
+            }
+
             progress?.Invoke(new IBankStatementParser.ProgressUpdate("Armando cabecera", 5, 6));
             if (txs.Count > 0)
             {
                 result.Statement.PeriodStart = txs.Min(t => t.Date);
-                result.Statement.PeriodEnd   = txs.Max(t => t.Date);
+                result.Statement.PeriodEnd = txs.Max(t => t.Date);
             }
 
             if (DIAGNOSTIC)
             {
                 result.Warnings.Add($"[diag] lines={rawLines.Length}, moneyRows={moneyRows}, parsed={produced}, range={result.Statement.PeriodStart:yyyy-MM-dd}->{result.Statement.PeriodEnd:yyyy-MM-dd}");
+                if (opening.HasValue && closing.HasValue)
+                    result.Warnings.Add($"[balances] opening={opening.Value}, closing={closing.Value}");
             }
 
             progress?.Invoke(new IBankStatementParser.ProgressUpdate("Listo", 6, 6));
