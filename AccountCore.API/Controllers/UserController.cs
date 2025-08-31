@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using AccountCore.DTO.Auth.Entities.User;
 using Swashbuckle.AspNetCore.Annotations;
 using AccountCore.Services.Auth.Errors;
+using AccountCore.DTO.Auth.Validation;
 
 namespace AccountCore.API.Controllers
 {
@@ -70,6 +71,13 @@ namespace AccountCore.API.Controllers
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Invalid user data or validation errors")]
         public async Task<IActionResult> Post([FromBody] UserPostDTO userDTO)
         {
+            var validationResults = ValidationExtensions.ValidateObject(userDTO);
+            if (validationResults.Any())
+            {
+                var errors = validationResults.Select(v => v.ErrorMessage).ToList();
+                return BadRequest(errors);
+            }
+
             var response = await _userService.Create(userDTO);
 
             if (response.Success)
@@ -90,6 +98,13 @@ namespace AccountCore.API.Controllers
         [SwaggerResponse(StatusCodes.Status403Forbidden, "Insufficient permissions - admin role required")]
         public async Task<IActionResult> Put(string userId, [FromBody] UserPostDTO userDto)
         {
+            var validationResults = ValidationExtensions.ValidateObject(userDto);
+            if (validationResults.Any())
+            {
+                var errors = validationResults.Select(v => v.ErrorMessage).ToList();
+                return BadRequest(errors);
+            }
+
             var response = await _userService.Update(userId, userDto);
 
             if (response.Success)

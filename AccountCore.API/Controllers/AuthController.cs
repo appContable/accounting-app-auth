@@ -5,6 +5,7 @@ using AccountCore.DTO.Auth.ReturnsModels;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Swashbuckle.AspNetCore.Annotations;
+using AccountCore.DTO.Auth.Validation;
 
 namespace AccountCore.API.Controllers
 {
@@ -28,7 +29,14 @@ namespace AccountCore.API.Controllers
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Invalid credentials or validation errors")]
         public async Task<IActionResult> Authentication([FromBody] AuthenticationDTO user)
         {
-            var token = await _authService.Authentication(user.Email ?? string.Empty, user.Password ?? string.Empty);
+            var validationResults = ValidationExtensions.ValidateObject(user);
+            if (validationResults.Any())
+            {
+                var errors = validationResults.Select(v => v.ErrorMessage).ToList();
+                return BadRequest(errors);
+            }
+
+            var token = await _authService.Authentication(user.Email!, user.Password!);
 
             if (token.Success)
             {
@@ -45,6 +53,13 @@ namespace AccountCore.API.Controllers
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Invalid request or validation errors")]
         public async Task<IActionResult> SetNewPassword(string userId, string codeBase64, SetPasswordDTO setPasswordDTO)
         {
+            var validationResults = ValidationExtensions.ValidateObject(setPasswordDTO);
+            if (validationResults.Any())
+            {
+                var errors = validationResults.Select(v => v.ErrorMessage).ToList();
+                return BadRequest(errors);
+            }
+
             var token = await _authService.SetNewPassword(userId, codeBase64, setPasswordDTO);
 
             if (token.Success)
@@ -62,6 +77,11 @@ namespace AccountCore.API.Controllers
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Invalid email or user not found")]
         public async Task<IActionResult> ResetPassword([FromForm] string email)
         {
+            if (string.IsNullOrWhiteSpace(email) || !email.IsValidEmail())
+            {
+                return BadRequest("Valid email is required");
+            }
+
             var token = await _authService.ResetPassword(email);
 
             if (token.Success)

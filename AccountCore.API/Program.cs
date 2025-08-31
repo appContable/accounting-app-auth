@@ -21,6 +21,8 @@ using AccountCore.API.Auth;
 using AccountCore.API.Helpers;
 using AccountCore.API.HostedServices;
 using AccountCore.API.Infraestructure;
+using AccountCore.Services.Auth.Interfaces;
+using AccountCore.Services.Auth.Repositories;
 
 //
 // ---- Fix GUID legacy para UserCategoryRule (Mongo driver) ----
@@ -52,6 +54,10 @@ builder.Services.AddSwaggerGen(o =>
 builder.Services.AddAutoMapper(typeof(Program));
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+
+// Auth Repositories
+builder.Services.AddScoped<IUserRepository, UserRepository>();
+builder.Services.AddScoped<IRoleRepository, RoleRepository>();
 
 // Configs
 builder.Services.Configure<MongoDbSettings>(builder.Configuration.GetSection("MongoDB"));

@@ -14,6 +14,8 @@ using AccountCore.DTO.Auth.Entities.User;
 using System.Security.Cryptography;
 using Microsoft.AspNetCore.Mvc;
 using AccountCore.Services.Auth.Errors;
+using AccountCore.Services.Auth.Interfaces;
+using AccountCore.DTO.Auth.Validation;
 
 namespace AccountCore.Services.Auth.Services
 {
@@ -22,135 +24,132 @@ namespace AccountCore.Services.Auth.Services
         private readonly ILogger<AuthService> _logger;
         private readonly IMapper _mapper;
         private readonly IConfiguration _configuration;
-        private readonly IUserService _userService;
+        private readonly IUserRepository _userRepository;
 
-        public AuthService(ILogger<AuthService> logger, IMapper mapper, IConfiguration configuration, IUserService userService)
+        public AuthService(ILogger<AuthService> logger, IMapper mapper, IConfiguration configuration, IUserRepository userRepository)
         {
             _logger = logger;
             _mapper = mapper;
             _configuration = configuration;
-            _userService = userService;
+            _userRepository = userRepository;
         }
 
         public async Task<ServiceResult<ReturnTokenDTO>> Authentication(string username, string password)
         {
             try
             {
-                var user = new User();
-                using (var dbcontext = new AuthContext(_configuration))
+                if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
                 {
-                    user = await dbcontext.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == username.ToLower() && u.IsActive == true);
+                    return ServiceResult<ReturnTokenDTO>.Error(ErrorsKey.Argument, "Email and password are required");
+                }
 
-                    if (user == null)
-                    {
-                        return ServiceResult<ReturnTokenDTO>.Error(Errors.ErrorsKey.Argument, "Invalid User/Password");
-                    }
+                var user = await _userRepository.GetByEmailAsync(username);
+                if (user == null)
+                {
+                    return ServiceResult<ReturnTokenDTO>.Error(ErrorsKey.Argument, "Invalid User/Password");
+                }
 
-                    if (user.IsLock)
-                    {
-                        return ServiceResult<ReturnTokenDTO>.Error(Errors.ErrorsKey.Lock, "User");
-                    }
+                if (user.IsLock)
+                {
+                    return ServiceResult<ReturnTokenDTO>.Error(ErrorsKey.Lock, "User");
+                }
 
-                    if (user.NeedsPasswordReset)
-                    {
-                        return ServiceResult<ReturnTokenDTO>.Error(Errors.ErrorsKey.ResetPass, "User");
-                    }
+                if (user.NeedsPasswordReset)
+                {
+                    return ServiceResult<ReturnTokenDTO>.Error(ErrorsKey.ResetPass, "User");
+                }
 
-                    if (!user.VerifyPassword(password))
-                    {
-                        user.RegistryLoginFail();
+                if (!user.VerifyPassword(password))
+                {
+                    user.RegistryLoginFail();
+                    await _userRepository.UpdateAsync(user);
+                    return ServiceResult<ReturnTokenDTO>.Error(ErrorsKey.Argument, "Invalid User/Password");
+                }
 
-                        dbcontext.Update(user);
-                        await dbcontext.SaveChangesAsync();
+                // Create JWT token
+                var tokenHandler = new JwtSecurityTokenHandler();
+                var secret = _configuration["JWT:Secret"] ?? throw new InvalidOperationException("JWT:Secret missing");
+                var tokenKey = Encoding.ASCII.GetBytes(secret);
 
-                        return ServiceResult<ReturnTokenDTO>.Error(Errors.ErrorsKey.Argument, "Invalid User/Password");
-                    }
+                var fullName = $"{user.FirstName ?? ""} {user.LastName ?? ""}".Trim();
 
-                    // 1. Create Security Token Handler
-                    var tokenHandler = new JwtSecurityTokenHandler();
-
-                    // 2. Create Private Key to Encrypted
-                    var secret = _configuration["JWT:Secret"] ?? throw new InvalidOperationException("JWT:Secret missing");
-                    var tokenKey = Encoding.ASCII.GetBytes(secret);
-
-                    // For now there is only one login per user
-                    var fullName = string.Empty;
-
-                    fullName = $"{user.FirstName} {user.LastName}";
-
-                    var claims = new List<Claim>()
+                var claims = new List<Claim>()
                 {
                     new Claim(ClaimTypes.Name, username),
                     new Claim("FullName", fullName),
-                    new Claim(ClaimsPrincipalExtensions.UserId, user?.Id ?? string.Empty),
-                    new Claim(ClaimsPrincipalExtensions.Email, user?.Email ?? string.Empty),
-                    new Claim(ClaimsPrincipalExtensions.FirstName, user?.FirstName ?? string.Empty),
-                    new Claim(ClaimsPrincipalExtensions.LastName, user?.LastName ?? string.Empty)
+                    new Claim(ClaimsPrincipalExtensions.UserId, user.Id ?? ""),
+                    new Claim(ClaimsPrincipalExtensions.Email, user.Email ?? ""),
+                    new Claim(ClaimsPrincipalExtensions.FirstName, user.FirstName ?? ""),
+                    new Claim(ClaimsPrincipalExtensions.LastName, user.LastName ?? "")
                 };
 
-                    var roles = new List<string>();
+                var roles = new List<string>();
 
-                    if (user.IsSysAdmin)
-                    {
-                        claims.Add(new Claim(ClaimTypes.Role, ClaimsPrincipalExtensions.AdminRole));
-                        roles.Add(ClaimsPrincipalExtensions.AdminRole);
-                    }
-                    else
-                    {
-                        foreach (var rol in user.Roles ?? Enumerable.Empty<RoleUser>())
-                        {
-                            claims.Add(new Claim(ClaimTypes.Role, rol.RoleKey));
-                            roles.Add(rol.RoleKey);
-                        }
-                    }
-
-                    var tokenValidityInMinutesValue = _configuration["JWT:TokenValidityInMinutes"] ?? throw new InvalidOperationException("JWT:TokenValidityInMinutes missing");
-                    _ = int.TryParse(tokenValidityInMinutesValue, out int tokenValidityInMinutes);
-
-                    var tokenDescriptor = new SecurityTokenDescriptor()
-                    {
-                        Subject = new ClaimsIdentity(claims),
-                        Expires = DateTime.UtcNow.AddMinutes(tokenValidityInMinutes),
-                        SigningCredentials = new SigningCredentials(
-                            new SymmetricSecurityKey(tokenKey), SecurityAlgorithms.HmacSha256Signature),
-                    };
-                    //4. Create Token
-                    var token = tokenHandler.CreateToken(tokenDescriptor);
-
-                    //5. Create RefreshToken
-                    var refreshToken = GenerateRefreshToken();
-
-                    var refreshTokenValidityInDaysValue = _configuration["JWT:RefreshTokenValidityInDays"] ?? throw new InvalidOperationException("JWT:RefreshTokenValidityInDays missing");
-                    _ = int.TryParse(refreshTokenValidityInDaysValue, out int refreshTokenValidityInDays);
-
-                    // Si el token esta expirado lo actualizo, sino solo cambio la fecha
-                    if (user.RefreshTokenExpiryTime < DateTime.UtcNow || string.IsNullOrEmpty(user.RefreshToken))
-                    {
-                        user.RefreshToken = refreshToken;
-                        user.RefreshTokenExpiryTime = DateTime.Now.AddDays(refreshTokenValidityInDays);
-                    }
-                    else
-                    {
-                        refreshToken = user.RefreshToken;
-                        user.RefreshTokenExpiryTime = DateTime.Now.AddDays(refreshTokenValidityInDays);
-                    }
-
-                    // 6. Return Token from method
-                    var returnToken = new ReturnTokenDTO() { Token = tokenHandler.WriteToken(token), Expire = tokenDescriptor.Expires ?? DateTime.Now, Roles = (user.Roles ?? Enumerable.Empty<RoleUser>()).Select(r => r.RoleKey), LoginId = user.Id ?? string.Empty, FullName = fullName, RefreshToken = refreshToken };
-
-
-                    user.RegistryLoginSucces();
-
-                    dbcontext.Update(user);
-                    await dbcontext.SaveChangesAsync();
-
-                    return ServiceResult<ReturnTokenDTO>.Ok(returnToken);
+                if (user.IsSysAdmin)
+                {
+                    claims.Add(new Claim(ClaimTypes.Role, ClaimsPrincipalExtensions.AdminRole));
+                    roles.Add(ClaimsPrincipalExtensions.AdminRole);
                 }
+                else
+                {
+                    var userRoles = user.Roles ?? Enumerable.Empty<RoleUser>();
+                    foreach (var rol in userRoles.Where(r => r.Enable))
+                    {
+                        claims.Add(new Claim(ClaimTypes.Role, rol.RoleKey));
+                        roles.Add(rol.RoleKey);
+                    }
+                }
+
+                var tokenValidityInMinutesValue = _configuration["JWT:TokenValidityInMinutes"] ?? "60";
+                if (!int.TryParse(tokenValidityInMinutesValue, out int tokenValidityInMinutes))
+                    tokenValidityInMinutes = 60;
+
+                var tokenDescriptor = new SecurityTokenDescriptor()
+                {
+                    Subject = new ClaimsIdentity(claims),
+                    Expires = DateTime.UtcNow.AddMinutes(tokenValidityInMinutes),
+                    SigningCredentials = new SigningCredentials(
+                        new SymmetricSecurityKey(tokenKey), SecurityAlgorithms.HmacSha256Signature),
+                };
+
+                var token = tokenHandler.CreateToken(tokenDescriptor);
+                var refreshToken = GenerateRefreshToken();
+
+                var refreshTokenValidityInDaysValue = _configuration["JWT:RefreshTokenValidityInDays"] ?? "7";
+                if (!int.TryParse(refreshTokenValidityInDaysValue, out int refreshTokenValidityInDays))
+                    refreshTokenValidityInDays = 7;
+
+                // Update refresh token if expired or missing
+                if (user.RefreshTokenExpiryTime < DateTime.UtcNow || string.IsNullOrEmpty(user.RefreshToken))
+                {
+                    user.RefreshToken = refreshToken;
+                    user.RefreshTokenExpiryTime = DateTime.Now.AddDays(refreshTokenValidityInDays);
+                }
+                else
+                {
+                    refreshToken = user.RefreshToken;
+                    user.RefreshTokenExpiryTime = DateTime.Now.AddDays(refreshTokenValidityInDays);
+                }
+
+                var returnToken = new ReturnTokenDTO()
+                {
+                    Token = tokenHandler.WriteToken(token),
+                    Expire = tokenDescriptor.Expires ?? DateTime.Now,
+                    Roles = roles,
+                    LoginId = user.Id ?? "",
+                    FullName = fullName,
+                    RefreshToken = refreshToken
+                };
+
+                user.RegistryLoginSucces();
+                await _userRepository.UpdateAsync(user);
+
+                return ServiceResult<ReturnTokenDTO>.Ok(returnToken);
             }
             catch (Exception e)
             {
                 _logger.LogError(e, "AuthService.Authentication");
-                return ServiceResult<ReturnTokenDTO>.Error(Errors.ErrorsKey.InternalErrorCode, e.Message);
+                return ServiceResult<ReturnTokenDTO>.Error(ErrorsKey.InternalErrorCode, e.Message);
             }
         }
 
@@ -161,17 +160,16 @@ namespace AccountCore.Services.Auth.Services
                 string? accessToken = tokenModel.AccessToken;
                 string? refreshToken = tokenModel.RefreshToken;
 
-
                 var principal = GetPrincipalFromExpiredToken(accessToken);
                 if (principal?.Identity == null)
                 {
-                    return ServiceResult<ReturnTokenDTO>.Error(Errors.ErrorsKey.Argument, "Invalid access token or refresh token");
+                    return ServiceResult<ReturnTokenDTO>.Error(ErrorsKey.Argument, "Invalid access token or refresh token");
                 }
 
                 var principalIdentity = principal.Identities.FirstOrDefault();
                 if (principalIdentity == null)
                 {
-                    return ServiceResult<ReturnTokenDTO>.Error(Errors.ErrorsKey.Argument, "Invalid access token or refresh token");
+                    return ServiceResult<ReturnTokenDTO>.Error(ErrorsKey.Argument, "Invalid access token or refresh token");
                 }
 
                 string username = principal.Identity.Name ?? string.Empty;
@@ -179,56 +177,48 @@ namespace AccountCore.Services.Auth.Services
                 var newAccessToken = CreateToken(principalIdentity.Claims.ToList());
                 var newRefreshToken = GenerateRefreshToken();
 
-                var refreshTokenValidityInDaysValue = _configuration["JWT:RefreshTokenValidityInDays"] ?? throw new InvalidOperationException("JWT:RefreshTokenValidityInDays missing");
-                _ = int.TryParse(refreshTokenValidityInDaysValue, out int refreshTokenValidityInDays);
-                var tokenValidityInMinutesValue = _configuration["JWT:TokenValidityInMinutes"] ?? throw new InvalidOperationException("JWT:TokenValidityInMinutes missing");
-                _ = int.TryParse(tokenValidityInMinutesValue, out int tokenValidityInMinutes);
+                var refreshTokenValidityInDaysValue = _configuration["JWT:RefreshTokenValidityInDays"] ?? "7";
+                if (!int.TryParse(refreshTokenValidityInDaysValue, out int refreshTokenValidityInDays))
+                    refreshTokenValidityInDays = 7;
+                
+                var tokenValidityInMinutesValue = _configuration["JWT:TokenValidityInMinutes"] ?? "60";
+                if (!int.TryParse(tokenValidityInMinutesValue, out int tokenValidityInMinutes))
+                    tokenValidityInMinutes = 60;
 
-                var user = new User();
-                using (var dbcontext = new AuthContext(_configuration))
+                var user = await _userRepository.GetByEmailAsync(username);
+                if (user == null || user.RefreshToken != refreshToken || user.RefreshTokenExpiryTime <= DateTime.Now)
                 {
-                    user = await dbcontext.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == username.ToLower() && !u.IsLock);
-
-                    if (user == null || user.RefreshToken != refreshToken || user.RefreshTokenExpiryTime <= DateTime.Now)
-                    {
-                        return ServiceResult<ReturnTokenDTO>.Error(Errors.ErrorsKey.Argument, "Invalid access token or refresh token");
-                    }
-
-                    //5. Create RefreshToken
-
-                    if (user.RefreshTokenExpiryTime > DateTime.UtcNow)
-                    {
-                        newRefreshToken = user.RefreshToken;
-                    }
-
-                    user.RefreshToken = newRefreshToken;
-                    user.RefreshTokenExpiryTime = DateTime.Now.AddDays(refreshTokenValidityInDays);
-
-                    dbcontext.Update(user);
-                    await dbcontext.SaveChangesAsync();
+                    return ServiceResult<ReturnTokenDTO>.Error(ErrorsKey.Argument, "Invalid access token or refresh token");
                 }
 
-                var objectResult = new ObjectResult(new
+                if (user.RefreshTokenExpiryTime > DateTime.UtcNow)
                 {
-                    accessToken = new JwtSecurityTokenHandler().WriteToken(newAccessToken),
-                    refreshToken = newRefreshToken
-                });
+                    newRefreshToken = user.RefreshToken;
+                }
 
-                // For now there is only one login per user
-                var fullName = string.Empty;
+                user.RefreshToken = newRefreshToken;
+                user.RefreshTokenExpiryTime = DateTime.Now.AddDays(refreshTokenValidityInDays);
+                await _userRepository.UpdateAsync(user);
 
-                fullName = $"{user.FirstName} {user.LastName}";
+                var fullName = $"{user.FirstName ?? ""} {user.LastName ?? ""}".Trim();
+                var userRoles = user.Roles ?? Enumerable.Empty<RoleUser>();
 
-                // 6. Return Token from method
-                var returnToken = new ReturnTokenDTO() { Token = new JwtSecurityTokenHandler().WriteToken(newAccessToken), Expire = DateTime.UtcNow.AddMinutes(tokenValidityInMinutes), Roles = user.Roles.Select(r => r.RoleKey), LoginId = user.Id, FullName = fullName, RefreshToken = newRefreshToken };
-
+                var returnToken = new ReturnTokenDTO()
+                {
+                    Token = new JwtSecurityTokenHandler().WriteToken(newAccessToken),
+                    Expire = DateTime.UtcNow.AddMinutes(tokenValidityInMinutes),
+                    Roles = userRoles.Select(r => r.RoleKey),
+                    LoginId = user.Id ?? "",
+                    FullName = fullName,
+                    RefreshToken = newRefreshToken
+                };
 
                 return ServiceResult<ReturnTokenDTO>.Ok(returnToken);
             }
             catch (Exception e)
             {
                 _logger.LogError(e, "AuthService.RefeshToken");
-                return ServiceResult<ReturnTokenDTO>.Error(Errors.ErrorsKey.InternalErrorCode, e.Message);
+                return ServiceResult<ReturnTokenDTO>.Error(ErrorsKey.InternalErrorCode, e.Message);
             }
         }
 
@@ -238,55 +228,46 @@ namespace AccountCore.Services.Auth.Services
             {
                 if (string.IsNullOrEmpty(email))
                 {
-                    return ServiceResult<bool>.Error(Errors.ErrorsKey.Argument, "mail");
+                    return ServiceResult<bool>.Error(ErrorsKey.Argument, "mail");
                 }
 
-                var token = string.Empty;
-                var userId = string.Empty;
-
-                using (var dbcontext = new AuthContext(_configuration))
+                if (!email.IsValidEmail())
                 {
-                    var user = await dbcontext.Users.FirstOrDefaultAsync(l => l.Email.ToLower() == email.ToLower() && l.IsActive == true && !l.IsSysAdmin);
-
-                    if (user == null)
-                    {
-                        return ServiceResult<bool>.Error(Errors.ErrorsKey.UserNotExist, "Invalid User");
-                    }
-
-                    if (user.ExpirationTokenDate > DateTime.UtcNow && !string.IsNullOrEmpty(user.Token))
-                    {
-                        // si aun esta vigente uso el mismo token
-                        token = user.Token;
-                    }
-                    else
-                    {
-                        token = User.GetPassEncode();
-                    }
-
-                    token = User.GetPassEncode();
-
-                    user.Token = token;
-                    userId = user.Id;
-
-                    user.ExpirationTokenDate = DateTime.UtcNow.AddHours(1);
-
-                    dbcontext.Users.Update(user);
-
-                    await dbcontext.SaveChangesAsync();
+                    return ServiceResult<bool>.Error(ErrorsKey.Argument, "Invalid email format");
                 }
 
-                var urlBase = _configuration["UiUrlBase"] ?? throw new InvalidOperationException("UiUrlBase missing");
+                var user = await _userRepository.GetByEmailAsync(email);
+                if (user == null)
+                {
+                    return ServiceResult<bool>.Error(ErrorsKey.UserNotExist, "Invalid User");
+                }
 
-                var link = $"{urlBase}set-new-password?UserId={userId}&code={token}";
+                string token;
+                if (user.ExpirationTokenDate > DateTime.UtcNow && !string.IsNullOrEmpty(user.Token))
+                {
+                    token = user.Token;
+                }
+                else
+                {
+                    token = User.GetPassEncode();
+                }
 
-                //var mail = await _emailService.Send(email, "Resetear Contraseña",link);
+                user.Token = token;
+                user.ExpirationTokenDate = DateTime.UtcNow.AddHours(1);
+                await _userRepository.UpdateAsync(user);
+
+                var urlBase = _configuration["UiUrlBase"] ?? "http://localhost:4200";
+                var link = $"{urlBase}/set-new-password?UserId={user.Id}&code={token}";
+
+                // TODO: Send email with reset link
+                // await _emailService.Send(email, "Resetear Contraseña", link);
 
                 return ServiceResult<bool>.Ok(true);
             }
             catch (Exception e)
             {
                 _logger.LogError(e, "AuthService.ResetPassword");
-                return ServiceResult<bool>.Error(Errors.ErrorsKey.InternalErrorCode, e.Message);
+                return ServiceResult<bool>.Error(ErrorsKey.InternalErrorCode, e.Message);
             }
         }
 
@@ -296,52 +277,41 @@ namespace AccountCore.Services.Auth.Services
             {
                 if (string.IsNullOrEmpty(userId) || string.IsNullOrEmpty(codeBase64))
                 {
-                    return ServiceResult<bool>.Error(Errors.ErrorsKey.Argument, "SetNewPasswordDTO");
+                    return ServiceResult<bool>.Error(ErrorsKey.Argument, "UserId and code are required");
                 }
 
-                if (string.IsNullOrEmpty(setPasswordDTO?.Password))
+                var validationResults = ValidationExtensions.ValidateObject(setPasswordDTO);
+                if (validationResults.Any())
                 {
-                    return ServiceResult<bool>.Error(Errors.ErrorsKey.Argument, "Password");
+                    var errors = validationResults.Select(v => new KeyValuePair<string, string>("Validation", v.ErrorMessage ?? "")).ToList();
+                    return ServiceResult<bool>.Error(errors);
                 }
 
-                if (setPasswordDTO?.Password != setPasswordDTO?.ConfirmPassword)
+                if (!setPasswordDTO!.Password!.IsStrongPassword())
                 {
-                    return ServiceResult<bool>.Error(Errors.ErrorsKey.Argument, "ConfirmPassword");
+                    return ServiceResult<bool>.Error(ErrorsKey.WeakPassword, "Password must be at least 8 characters with uppercase, lowercase, and digit");
                 }
 
-                if (setPasswordDTO?.Password.Length < 4 )
+                var user = await _userRepository.GetByIdAsync(userId);
+                if (user == null || user.Token != codeBase64 || user.IsActive != true || user.IsSysAdmin)
                 {
-                    return ServiceResult<bool>.Error(Errors.ErrorsKey.WeakPassword, "WeakPassword");
+                    return ServiceResult<bool>.Error(ErrorsKey.InvalidInvitation, "Invalid Token");
                 }
 
-
-                using (var dbcontext = new AuthContext(_configuration))
+                if (user.ExpirationTokenDate <= DateTime.UtcNow)
                 {
-                    var user = await dbcontext.Users.FirstOrDefaultAsync(l => l.Id == userId && l.Token == codeBase64 && l.IsActive == true && !l.IsSysAdmin);
-
-                    if (user == null)
-                    {
-                        return ServiceResult<bool>.Error(Errors.ErrorsKey.InvalidInvitation, "Invalid Token");
-                    }
-
-                    if (user.ExpirationTokenDate <= DateTime.UtcNow)
-                    {
-                        return ServiceResult<bool>.Error(Errors.ErrorsKey.InvitationExpired, "Expired Token");
-                    }
-
-                    user.SetPassword(setPasswordDTO?.ConfirmPassword);
-
-                    dbcontext.Users.Update(user);
-
-                    await dbcontext.SaveChangesAsync();
+                    return ServiceResult<bool>.Error(ErrorsKey.InvitationExpired, "Expired Token");
                 }
+
+                user.SetPassword(setPasswordDTO.ConfirmPassword);
+                await _userRepository.UpdateAsync(user);
 
                 return ServiceResult<bool>.Ok(true);
             }
             catch (Exception e)
             {
                 _logger.LogError(e, "AuthService.SetNewPassword");
-                return ServiceResult<bool>.Error(Errors.ErrorsKey.InternalErrorCode, e.Message);
+                return ServiceResult<bool>.Error(ErrorsKey.InternalErrorCode, e.Message);
             }
         }
 
@@ -351,11 +321,12 @@ namespace AccountCore.Services.Auth.Services
             var secret = _configuration["JWT:Secret"] ?? throw new InvalidOperationException("JWT:Secret missing");
             var authSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret));
 
-            var tokenValidityInMinutesValue = _configuration["JWT:TokenValidityInMinutes"] ?? throw new InvalidOperationException("JWT:TokenValidityInMinutes missing");
-            _ = int.TryParse(tokenValidityInMinutesValue, out int tokenValidityInMinutes);
+            var tokenValidityInMinutesValue = _configuration["JWT:TokenValidityInMinutes"] ?? "60";
+            if (!int.TryParse(tokenValidityInMinutesValue, out int tokenValidityInMinutes))
+                tokenValidityInMinutes = 60;
 
-            var issuer = _configuration["JWT:ValidIssuer"] ?? throw new InvalidOperationException("JWT:ValidIssuer missing");
-            var audience = _configuration["JWT:ValidAudience"] ?? throw new InvalidOperationException("JWT:ValidAudience missing");
+            var issuer = _configuration["JWT:ValidIssuer"] ?? "AccountCore.API";
+            var audience = _configuration["JWT:ValidAudience"] ?? "AccountCore.Client";
 
             var token = new JwtSecurityToken(
                 issuer: issuer,
@@ -394,7 +365,6 @@ namespace AccountCore.Services.Auth.Services
                 throw new SecurityTokenException("Invalid token");
 
             return principal;
-
         }
     }
 }
