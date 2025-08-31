@@ -25,7 +25,6 @@ using AccountCore.Services.Auth.Interfaces;
 using AccountCore.Services.Auth.Repositories;
 using AccountCore.DTO.Auth.Configuration;
 using AccountCore.API.Middleware;
-using AccountCore.API.Versioning;
 
 //
 // ---- Fix GUID legacy para UserCategoryRule (Mongo driver) ----
@@ -41,19 +40,15 @@ if (!BsonClassMap.IsClassMapRegistered(typeof(UserCategoryRule)))
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Configuration with validation
-builder.Services.AddValidatedConfiguration<JwtSettings>(builder.Configuration, "JWT");
-builder.Services.AddValidatedConfiguration<ApiSettings>(builder.Configuration, "Api");
-builder.Services.AddValidatedConfiguration<MongoDbSettings>(builder.Configuration, "MongoDB");
-builder.Services.AddValidatedConfiguration<UsageSettings>(builder.Configuration, "Usage");
-builder.Services.AddValidatedConfiguration<BankRulesSettings>(builder.Configuration, "BankRules");
+// Configuration
+builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("JWT"));
+builder.Services.Configure<MongoDbSettings>(builder.Configuration.GetSection("MongoDB"));
+builder.Services.Configure<UsageSettings>(builder.Configuration.GetSection("Usage"));
+builder.Services.Configure<BankRulesSettings>(builder.Configuration.GetSection("BankRules"));
 
 // Controllers + JSON
 builder.Services.AddControllers().AddJsonOptions(x =>
     x.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles);
-
-// API Versioning
-builder.Services.AddApiVersioningSupport();
 
 // Swagger
 builder.Services.AddEndpointsApiExplorer();
