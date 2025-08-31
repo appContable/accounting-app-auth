@@ -45,7 +45,6 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("JWT"));
 builder.Services.Configure<MongoDbSettings>(builder.Configuration.GetSection("MongoDB"));
 builder.Services.Configure<UsageSettings>(builder.Configuration.GetSection("Usage"));
-builder.Services.Configure<BankRulesSettings>(builder.Configuration.GetSection("BankRules"));
 
 // ---- MongoDB AuthContext ----
 builder.Services.AddScoped<AuthContext>(sp =>
@@ -96,13 +95,11 @@ builder.Services.AddScoped<IMongoDatabase>(sp =>
 builder.Services.AddScoped<IParseUsageRepository, ParseUsageRepository>();
 builder.Services.AddScoped<IUserCategoryRuleRepository, UserCategoryRuleRepository>();
 builder.Services.AddScoped<IBankCategoryRuleRepository, BankCategoryRuleRepository>();
-builder.Services.AddScoped<IBankRulesProvider, MongoBankRulesProvider>();
 builder.Services.AddScoped<ICategorizationService, CategorizationService>();
 builder.Services.AddScoped<IPdfParsingService, PdfParserService>();
 
 // Hosted services
 builder.Services.AddHostedService<MongoIndexHostedService>();
-builder.Services.AddHostedService<RuleSeederHostedService>();
 
 // ==============================
 //   Identity con EF InMemory
