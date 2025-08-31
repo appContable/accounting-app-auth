@@ -255,6 +255,10 @@ namespace AccountCore.Services.Parser.Parsers
                 int i = 0, total = rawLines.Length;
                 int produced = 0, moneyRows = 0;
 
+                // Safety counter to prevent infinite loops
+                int maxIterations = total * 2; // Allow some expansion but prevent runaway
+                int iterationCount = 0;
+
                 List<Match> monies = new(8);
                 static void PushMoney(List<Match> bag, Match m, int keep = 4)
                 {
@@ -264,6 +268,13 @@ namespace AccountCore.Services.Parser.Parsers
 
                 while (i < total)
                 {
+                    // Safety check to prevent infinite loops
+                    if (++iterationCount > maxIterations)
+                    {
+                        result.Warnings.Add($"[safety] Loop terminated after {maxIterations} iterations to prevent infinite loop");
+                        break;
+                    }
+
                     if (i % Math.Max(1, total / 50) == 0) Report($"Cuenta {accIdx}: líneas", i, total);
 
                     var raw = rawLines[i] ?? string.Empty;
@@ -365,10 +376,19 @@ namespace AccountCore.Services.Parser.Parsers
 
                     if (nextDateRema != null)
                     {
+                        // Prevent infinite expansion of the array
+                        if (total > rawLines.Length * 3)
+                        {
+                            result.Warnings.Add($"[safety] Array expansion limit reached, skipping remaining inline dates");
+                            nextDateRema = null;
+                        }
+                        else
+                        {
                         var list = rawLines.ToList();
                         list.Insert(i, nextDateRema);
                         rawLines = list.ToArray();
                         total = rawLines.Length;
+                        }
                     }
                 }
 
