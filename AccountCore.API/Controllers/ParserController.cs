@@ -17,6 +17,7 @@ namespace AccountCore.API.Controllers
     /// </summary>
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
     public class ParserController : ControllerBase
     {
         private readonly IPdfParsingService _parserService;
