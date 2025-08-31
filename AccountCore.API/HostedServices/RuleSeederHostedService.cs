@@ -7,23 +7,24 @@ namespace AccountCore.API.HostedServices
 {
     public class RuleSeederHostedService : IHostedService
     {
-        private readonly IOptions<BankRulesSettings> _opt;
-        private readonly IBankCategoryRuleRepository _repo;
+        private readonly IServiceProvider _serviceProvider;
         private readonly ILogger<RuleSeederHostedService> _logger;
 
         public RuleSeederHostedService(
-            IOptions<BankRulesSettings> opt,
-            IBankCategoryRuleRepository repo,
+            IServiceProvider serviceProvider,
             ILogger<RuleSeederHostedService> logger)
         {
-            _opt = opt;
-            _repo = repo;
+            _serviceProvider = serviceProvider;
             _logger = logger;
         }
 
         public async Task StartAsync(CancellationToken cancellationToken)
         {
-            var banks = _opt.Value?.Banks;
+            using var scope = _serviceProvider.CreateScope();
+            var settings = scope.ServiceProvider.GetRequiredService<IOptions<BankRulesSettings>>();
+            var repo = scope.ServiceProvider.GetRequiredService<IBankCategoryRuleRepository>();
+            
+            var banks = settings.Value?.Banks;
             if (banks == null || banks.Count == 0) return;
 
             foreach (var kv in banks)
@@ -31,7 +32,7 @@ namespace AccountCore.API.HostedServices
                 var bank = kv.Key;
                 foreach (var item in kv.Value ?? Enumerable.Empty<BankRuleItem>())
                 {
-                    var existing = await _repo.FindByBankAndPatternAsync(bank, item.Pattern, cancellationToken);
+                    var existing = await repo.FindByBankAndPatternAsync(bank, item.Pattern, cancellationToken);
                     if (existing != null) continue;
 
                     var rule = new BankCategoryRule
@@ -47,7 +48,7 @@ namespace AccountCore.API.HostedServices
                         UpdatedAt = DateTime.UtcNow
                     };
 
-                    await _repo.InsertAsync(rule, cancellationToken);
+                    await repo.InsertAsync(rule, cancellationToken);
                     _logger.LogInformation("Seeded bank rule: {Bank} | {Pattern}", bank, item.Pattern);
                 }
             }

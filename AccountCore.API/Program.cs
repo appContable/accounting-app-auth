@@ -46,6 +46,13 @@ builder.Services.Configure<MongoDbSettings>(builder.Configuration.GetSection("Mo
 builder.Services.Configure<UsageSettings>(builder.Configuration.GetSection("Usage"));
 builder.Services.Configure<BankRulesSettings>(builder.Configuration.GetSection("BankRules"));
 
+// ---- MongoDB AuthContext ----
+builder.Services.AddScoped<AuthContext>(sp =>
+{
+    var configuration = sp.GetRequiredService<IConfiguration>();
+    return new AuthContext(configuration);
+});
+
 // Controllers + JSON
 builder.Services.AddControllers().AddJsonOptions(x =>
     x.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles);
