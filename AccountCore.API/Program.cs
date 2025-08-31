@@ -45,7 +45,6 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("JWT"));
 builder.Services.Configure<MongoDbSettings>(builder.Configuration.GetSection("MongoDB"));
 builder.Services.Configure<UsageSettings>(builder.Configuration.GetSection("Usage"));
-builder.Services.Configure<BankRulesSettings>(builder.Configuration.GetSection("BankRules"));
 
 // ---- MongoDB AuthContext ----
 builder.Services.AddScoped<AuthContext>(sp =>
@@ -96,13 +95,11 @@ builder.Services.AddScoped<IMongoDatabase>(sp =>
 builder.Services.AddScoped<IParseUsageRepository, ParseUsageRepository>();
 builder.Services.AddScoped<IUserCategoryRuleRepository, UserCategoryRuleRepository>();
 builder.Services.AddScoped<IBankCategoryRuleRepository, BankCategoryRuleRepository>();
-builder.Services.AddScoped<IBankRulesProvider, MongoBankRulesProvider>();
 builder.Services.AddScoped<ICategorizationService, CategorizationService>();
 builder.Services.AddScoped<IPdfParsingService, PdfParserService>();
 
 // Hosted services
 builder.Services.AddHostedService<MongoIndexHostedService>();
-builder.Services.AddHostedService<RuleSeederHostedService>();
 
 // ==============================
 //   Identity con EF InMemory
@@ -159,6 +156,19 @@ app.UseMiddleware<RateLimitingMiddleware>();
 
 app.UseSwagger();
 app.UseSwaggerUI();
+
+// Configurar Swagger UI para mostrar endpoints de testing
+if (app.Environment.IsDevelopment() || 
+    app.Configuration.GetValue<bool>("Testing:EnableTestEndpoints"))
+{
+    app.UseSwaggerUI(c =>
+    {
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "AccountCore API v1");
+        c.DisplayRequestDuration();
+        c.EnableTryItOutByDefault();
+        c.DocExpansion(Swashbuckle.AspNetCore.SwaggerUI.DocExpansion.List);
+    });
+}
 
 var httpsPort = builder.Configuration.GetValue<int?>("HttpsPort");
 if (httpsPort.HasValue)
