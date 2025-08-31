@@ -97,7 +97,7 @@ namespace AccountCore.Services.Auth.Services
                     }
                     else
                     {
-                        foreach (var rol in user.Roles ?? new List<RoleUser>())
+                        foreach (var rol in user.Roles ?? Enumerable.Empty<RoleUser>())
                         {
                             claims.Add(new Claim(ClaimTypes.Role, rol.RoleKey));
                             roles.Add(rol.RoleKey);
@@ -136,7 +136,7 @@ namespace AccountCore.Services.Auth.Services
                     }
 
                     // 6. Return Token from method
-                    var returnToken = new ReturnTokenDTO() { Token = tokenHandler.WriteToken(token), Expire = tokenDescriptor.Expires ?? DateTime.Now, Roles = user.Roles?.Select(r => r.RoleKey) ?? new List<string>(), LoginId = user.Id ?? string.Empty, FullName = fullName, RefreshToken = refreshToken };
+                    var returnToken = new ReturnTokenDTO() { Token = tokenHandler.WriteToken(token), Expire = tokenDescriptor.Expires ?? DateTime.Now, Roles = (user.Roles ?? Enumerable.Empty<RoleUser>()).Select(r => r.RoleKey), LoginId = user.Id ?? string.Empty, FullName = fullName, RefreshToken = refreshToken };
 
 
                     user.RegistryLoginSucces();
