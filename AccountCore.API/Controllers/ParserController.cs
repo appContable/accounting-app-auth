@@ -1,8 +1,11 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Options;
 using Swashbuckle.AspNetCore.Annotations;
 using System;
+using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -19,6 +22,7 @@ namespace AccountCore.API.Controllers
     /// </summary>
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
     public class ParserController : ControllerBase
     {
         private readonly IPdfParsingService _parserService;
@@ -46,6 +50,7 @@ namespace AccountCore.API.Controllers
         [SwaggerOperation(Summary = "Parsea un extracto PDF y categoriza (reglas banco + usuario)")]
         [SwaggerResponse(StatusCodes.Status200OK, "Resultado del parseo", typeof(ParseResult))]
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Solicitud inválida", typeof(string))]
+        [SwaggerResponse(StatusCodes.Status401Unauthorized, "Token no válido o expirado")]
         [SwaggerResponse(StatusCodes.Status429TooManyRequests, "Límite de uso alcanzado", typeof(string))]
         public async Task<IActionResult> Parse([FromForm] UploadPdfRequest req, CancellationToken ct)
         {
@@ -53,19 +58,22 @@ namespace AccountCore.API.Controllers
                 return BadRequest("Archivo no válido.");
             if (string.IsNullOrWhiteSpace(req.Bank))
                 return BadRequest("Debe indicar el banco.");
-            if (string.IsNullOrWhiteSpace(req.UserId))
-                return BadRequest("Debe indicar el userId.");
+
+            // Extract user ID from JWT token
+            var userId = User.FindFirst(ClaimsPrincipalExtensions.UserId)?.Value;
+            if (string.IsNullOrWhiteSpace(userId))
+                return BadRequest("Token no contiene información de usuario válida.");
 
             try
             {
                 using var stream = req.File.OpenReadStream();
 
                 // 1) Parsear PDF (devuelve ParseResult del DAL)
-                var result = await _parserService.ParseAsync(stream, req.Bank, req.UserId);
+                var result = await _parserService.ParseAsync(stream, req.Bank, userId);
                 if (result == null) return BadRequest("No se pudo procesar el PDF.");
 
                 // 2) Aplicar categorización (banco + usuario)
-                await _categorizationService.ApplyAsync(result, req.Bank, req.UserId, ct);
+                await _categorizationService.ApplyAsync(result, req.Bank, userId, ct);
 
                 return Ok(result);
             }
@@ -80,15 +88,18 @@ namespace AccountCore.API.Controllers
         /// </summary>
         [HttpGet("usage")]
         [SwaggerOperation(Summary = "Uso actual del usuario")]
-        public async Task<IActionResult> GetUsage([FromQuery] string userId)
+        [SwaggerResponse(StatusCodes.Status200OK, "Información de uso del usuario")]
+        [SwaggerResponse(StatusCodes.Status401Unauthorized, "Token no válido o expirado")]
+        public async Task<IActionResult> GetUsage()
         {
+            // Extract user ID from JWT token
+            var userId = User.FindFirst(ClaimsPrincipalExtensions.UserId)?.Value;
             if (string.IsNullOrWhiteSpace(userId))
-                return BadRequest("userId requerido.");
+                return BadRequest("Token no contiene información de usuario válida.");
 
             var now = DateTime.UtcNow;
             var start = new DateTime(now.Year, now.Month, 1);
 
-            // Nota: si tu repo tiene una sobrecarga con CancellationToken, podés pasarlo.
             var count = await _usageRepository.CountByUserAsync(userId, start, now);
 
             return Ok(new { count, remaining = _monthlyLimit - count });

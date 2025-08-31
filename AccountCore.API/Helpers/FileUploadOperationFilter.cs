@@ -29,11 +29,10 @@ namespace AccountCore.API.Helpers
                                 Type = "object",
                                 Properties = new Dictionary<string, OpenApiSchema>
                                 {
-                                    ["userId"] = new OpenApiSchema { Type = "string" },
                                     ["bank"]   = new OpenApiSchema { Type = "string" },
                                     ["file"]   = new OpenApiSchema { Type = "string", Format = "binary" }
                                 },
-                                Required = new HashSet<string> { "userId", "bank", "file" }
+                                Required = new HashSet<string> { "bank", "file" }
                             }
                         }
                     }
