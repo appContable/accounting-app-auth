@@ -11,7 +11,6 @@ using Microsoft.AspNetCore.RateLimiting;
 namespace AccountCore.API.Controllers
 {
     [Route("api/[controller]")]
-    [ApiVersion("1.0")]
     [ApiController]
     public class AuthController : ControllerBase
     {

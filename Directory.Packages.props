@@ -36,6 +36,10 @@
     <PackageVersion Include="Swashbuckle.AspNetCore.Newtonsoft" Version="9.0.3" />
     <PackageVersion Include="Microsoft.OpenApi" Version="1.6.23" />
 
+    <!-- API Versioning -->
+    <PackageVersion Include="Microsoft.AspNetCore.Mvc.Versioning" Version="5.1.0" />
+    <PackageVersion Include="Microsoft.AspNetCore.Mvc.Versioning.ApiExplorer" Version="5.1.0" />
+
     <!-- PDF -->
     <PackageVersion Include="UglyToad.PdfPig" Version="1.7.0-custom-5" />
   </ItemGroup>
