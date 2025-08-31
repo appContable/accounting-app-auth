@@ -28,7 +28,7 @@ namespace AccountCore.API.Controllers
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Invalid credentials or validation errors")]
         public async Task<IActionResult> Authentication([FromBody] AuthenticationDTO user)
         {
-            var token = await _authService.Authentication(user.Email, user.Password);
+            var token = await _authService.Authentication(user.Email ?? string.Empty, user.Password ?? string.Empty);
 
             if (token.Success)
             {

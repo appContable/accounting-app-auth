@@ -82,8 +82,8 @@ namespace AccountCore.Services.Auth.Services
                 {
                     new Claim(ClaimTypes.Name, username),
                     new Claim("FullName", fullName),
-                    new Claim(ClaimsPrincipalExtensions.UserId, user?.Id),
-                    new Claim(ClaimsPrincipalExtensions.Email, user?.Email),
+                    new Claim(ClaimsPrincipalExtensions.UserId, user?.Id ?? string.Empty),
+                    new Claim(ClaimsPrincipalExtensions.Email, user?.Email ?? string.Empty),
                     new Claim(ClaimsPrincipalExtensions.FirstName, user?.FirstName ?? string.Empty),
                     new Claim(ClaimsPrincipalExtensions.LastName, user?.LastName ?? string.Empty)
                 };
@@ -97,7 +97,7 @@ namespace AccountCore.Services.Auth.Services
                     }
                     else
                     {
-                        foreach (var rol in user.Roles)
+                        foreach (var rol in user.Roles ?? new List<RoleUser>())
                         {
                             claims.Add(new Claim(ClaimTypes.Role, rol.RoleKey));
                             roles.Add(rol.RoleKey);
@@ -136,7 +136,7 @@ namespace AccountCore.Services.Auth.Services
                     }
 
                     // 6. Return Token from method
-                    var returnToken = new ReturnTokenDTO() { Token = tokenHandler.WriteToken(token), Expire = tokenDescriptor.Expires ?? DateTime.Now, Roles = roles, LoginId = user.Id, FullName = fullName, RefreshToken = refreshToken };
+                    var returnToken = new ReturnTokenDTO() { Token = tokenHandler.WriteToken(token), Expire = tokenDescriptor.Expires ?? DateTime.Now, Roles = user.Roles?.Select(r => r.RoleKey) ?? new List<string>(), LoginId = user.Id ?? string.Empty, FullName = fullName, RefreshToken = refreshToken };
 
 
                     user.RegistryLoginSucces();
