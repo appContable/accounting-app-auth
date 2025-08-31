@@ -44,8 +44,8 @@ namespace AccountCore.Services.Auth.Services
                 {
                     var user = new User
                     {
-                        FirstName = userDto.FirstName ?? string.Empty,
-                        LastName = userDto.LastName ?? string.Empty,
+                        FirstName = userDto.FirstName,
+                        LastName = userDto.LastName,
                         Email = userDto.Email,
                         CreationDate = DateTime.UtcNow,
                         Id = Guid.NewGuid().ToString(),
@@ -175,7 +175,7 @@ namespace AccountCore.Services.Auth.Services
 
                     var roles = await dbcontext.Roles.AsQueryable().Where(r => r.IsEnabled && userDto.RoleIds!.Contains(r.Id)).ToListAsync();
 
-                    foreach( var r in user.Roles ?? new List<RoleUser>())
+                    foreach( var r in user.Roles ?? Enumerable.Empty<RoleUser>())
                     {
                         r.Enable = false;
                     }
@@ -220,7 +220,7 @@ namespace AccountCore.Services.Auth.Services
                 var userLogged = this.GetCurrentUser();
                 using (var dbcontext = new AuthContext(_configuration))
                 {
-                    var user = await dbcontext.Users.FirstOrDefaultAsync(u => u.Id.Equals(userId) && !u.IsSysAdmin);
+                    var user = await dbcontext.Users.FirstOrDefaultAsync(u => u.Id!.Equals(userId) && !u.IsSysAdmin);
 
                     // Si es usuario de sistema no se puede eliminar
                     if (user == null)
@@ -286,7 +286,7 @@ namespace AccountCore.Services.Auth.Services
             var userLogged = this.GetCurrentUser();
             using (var dbcontext = new AuthContext(_configuration))
             {
-                var user = await dbcontext.Users.FirstOrDefaultAsync(u => u.Id.Equals(userId) && !u.IsSysAdmin);
+                var user = await dbcontext.Users.FirstOrDefaultAsync(u => u.Id!.Equals(userId) && !u.IsSysAdmin);
 
                 // Si es usuario de sistema no se puede eliminar
                 if (user == null)
