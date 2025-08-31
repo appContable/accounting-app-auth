@@ -58,16 +58,16 @@ Para habilitar HTTPS, defina `HttpsPort` en la configuración; el middleware `Us
 
 | Método | Ruta | Descripción | Parámetros | Cuerpo | Autorización |
 |-------|------|-------------|------------|-------|-------------|
-| POST | `/api/Parser/parse` | Parsea PDF y aplica reglas de categorización | - | `multipart/form-data` con `file`, `bank`, `userId` | Ninguna |
-| GET | `/api/Parser/usage` | Devuelve parseos usados y restantes del mes | `userId` (query) | - | Ninguna |
+| POST | `/api/Parser/parse` | Parsea PDF y aplica reglas de categorización | - | `multipart/form-data` con `file`, `bank` | **JWT Bearer** |
+| GET | `/api/Parser/usage` | Devuelve parseos usados y restantes del mes | - | - | **JWT Bearer** |
 
 ### Rules
 
 | Método | Ruta | Descripción | Parámetros | Cuerpo | Autorización |
 |-------|------|-------------|------------|-------|-------------|
-| GET | `/api/Rules` | Lista reglas del usuario para un banco | `userId`, `bank`, `onlyActive` (query) | - | Ninguna |
-| POST | `/api/Rules/learn` | Aprende o actualiza una regla | - | `LearnRuleRequest` (userId, bank, pattern, category) | Ninguna |
-| PATCH | `/api/Rules/{id}/deactivate` | Desactiva una regla existente | `id` (path), `userId`, `bank` (query) | - | Ninguna |
+| GET | `/api/Rules` | Lista reglas del usuario para un banco | `bank`, `onlyActive` (query) | - | **JWT Bearer** |
+| POST | `/api/Rules/learn` | Aprende o actualiza una regla | - | `LearnRuleRequest` (bank, pattern, category) | **JWT Bearer** |
+| PATCH | `/api/Rules/{id}/deactivate` | Desactiva una regla existente | `id` (path), `bank` (query) | - | **JWT Bearer** |
 
 ### User
 
