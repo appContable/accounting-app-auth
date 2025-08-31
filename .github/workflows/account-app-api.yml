@@ -12,6 +12,7 @@ env:
   CONFIGURATION: Release
   DOTNET_CORE_VERSION: 8.0.x
   WORKING_DIRECTORY: AccountCore.API
+  BUILD_VERSION: 1.0.${{ github.run_number }}
 jobs:
   build:
     runs-on: windows-latest
@@ -21,13 +22,20 @@ jobs:
       uses: actions/setup-dotnet@v3
       with:
         dotnet-version: ${{ env.DOTNET_CORE_VERSION }}
+    - name: Set version in appsettings
+      run: |
+        $content = Get-Content "AccountCore.API/appsettings.json" -Raw
+        $json = $content | ConvertFrom-Json
+        $json.Api.Version = "${{ env.BUILD_VERSION }}"
+        $json | ConvertTo-Json -Depth 10 | Set-Content "AccountCore.API/appsettings.json"
+      shell: powershell
     - name: Restore
       run: dotnet restore "${{ env.WORKING_DIRECTORY }}"
     - name: Build
-      run: dotnet build "${{ env.WORKING_DIRECTORY }}" --configuration ${{ env.CONFIGURATION }} --no-restore
+      run: dotnet build "${{ env.WORKING_DIRECTORY }}" --configuration ${{ env.CONFIGURATION }} --no-restore -p:Version=${{ env.BUILD_VERSION }}
     - name: Publish
       if: ${{ github.event_name != 'pull_request' }}
-      run: dotnet publish "${{ env.WORKING_DIRECTORY }}" --configuration ${{ env.CONFIGURATION }} --no-build --output "${{ env.AZURE_WEBAPP_PACKAGE_PATH }}"
+      run: dotnet publish "${{ env.WORKING_DIRECTORY }}" --configuration ${{ env.CONFIGURATION }} --no-build --output "${{ env.AZURE_WEBAPP_PACKAGE_PATH }}" -p:Version=${{ env.BUILD_VERSION }}
     - name: Deploy to Azure WebApp test
       if: ${{ github.event_name != 'pull_request' }}
       uses: azure/webapps-deploy@v2
