@@ -16,7 +16,7 @@ using Microsoft.AspNetCore.Mvc;
 using AccountCore.Services.Auth.Errors;
 using AccountCore.Services.Auth.Interfaces;
 using AccountCore.DTO.Auth.Validation;
-using AccountCore.API.Configuration;
+using AccountCore.DTO.Auth.Configuration;
 using Microsoft.Extensions.Options;
 
 namespace AccountCore.Services.Auth.Services

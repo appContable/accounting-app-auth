@@ -23,7 +23,7 @@ using AccountCore.API.HostedServices;
 using AccountCore.API.Infraestructure;
 using AccountCore.Services.Auth.Interfaces;
 using AccountCore.Services.Auth.Repositories;
-using AccountCore.API.Configuration;
+using AccountCore.DTO.Auth.Configuration;
 using AccountCore.API.Middleware;
 using AccountCore.API.Versioning;
 

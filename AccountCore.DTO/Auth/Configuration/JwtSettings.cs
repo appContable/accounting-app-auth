@@ -1,6 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 
-namespace AccountCore.API.Configuration
+namespace AccountCore.DTO.Auth.Configuration
 {
     public class JwtSettings
     {
