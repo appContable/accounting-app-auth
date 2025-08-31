@@ -42,14 +42,14 @@ namespace AccountCore.Services.Auth.Services
                 var validationResults = ValidationExtensions.ValidateObject(userDto);
                 if (validationResults.Any())
                 {
-                    var errors = validationResults.Select(v => new KeyValuePair<string, string>("Validation", v.ErrorMessage ?? "")).ToList();
-                    return ServiceResult<UserDTO>.Error(errors);
+                    var validationErrors = validationResults.Select(v => new KeyValuePair<string, string>("Validation", v.ErrorMessage ?? "")).ToList();
+                    return ServiceResult<UserDTO>.Error(validationErrors);
                 }
 
-                var errors = await ValidateUserDto(userDto);
-                if (errors.Any())
+                var businessErrors = await ValidateUserDto(userDto);
+                if (businessErrors.Any())
                 {
-                    return ServiceResult<UserDTO>.Error(errors);
+                    return ServiceResult<UserDTO>.Error(businessErrors);
                 }
 
                 var token = User.GetPassEncode();
@@ -143,14 +143,14 @@ namespace AccountCore.Services.Auth.Services
                 var validationResults = ValidationExtensions.ValidateObject(userDto);
                 if (validationResults.Any())
                 {
-                    var errors = validationResults.Select(v => new KeyValuePair<string, string>("Validation", v.ErrorMessage ?? "")).ToList();
-                    return ServiceResult<UserDTO>.Error(errors);
+                    var validationErrors = validationResults.Select(v => new KeyValuePair<string, string>("Validation", v.ErrorMessage ?? "")).ToList();
+                    return ServiceResult<UserDTO>.Error(validationErrors);
                 }
 
-                var errors = await ValidateUserDto(userDto, userId);
-                if (errors.Any())
+                var businessErrors = await ValidateUserDto(userDto, userId);
+                if (businessErrors.Any())
                 {
-                    return ServiceResult<UserDTO>.Error(errors);
+                    return ServiceResult<UserDTO>.Error(businessErrors);
                 }
 
                 var user = await _userRepository.GetByIdAsync(userId);

@@ -207,7 +207,7 @@ namespace AccountCore.Services.Auth.Services
                 {
                     Token = new JwtSecurityTokenHandler().WriteToken(newAccessToken),
                     Expire = DateTime.UtcNow.AddMinutes(tokenValidityInMinutes),
-                    Roles = userRoles.Select(r => r.RoleKey),
+                    Roles = userRoles.Select(r => r.RoleKey ?? ""),
                     LoginId = user.Id ?? "",
                     FullName = fullName,
                     RefreshToken = newRefreshToken
