@@ -23,6 +23,9 @@ using AccountCore.API.HostedServices;
 using AccountCore.API.Infraestructure;
 using AccountCore.Services.Auth.Interfaces;
 using AccountCore.Services.Auth.Repositories;
+using AccountCore.API.Configuration;
+using AccountCore.API.Middleware;
+using AccountCore.API.Versioning;
 
 //
 // ---- Fix GUID legacy para UserCategoryRule (Mongo driver) ----
@@ -38,9 +41,19 @@ if (!BsonClassMap.IsClassMapRegistered(typeof(UserCategoryRule)))
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Configuration with validation
+builder.Services.AddValidatedConfiguration<JwtSettings>(builder.Configuration, "JWT");
+builder.Services.AddValidatedConfiguration<ApiSettings>(builder.Configuration, "Api");
+builder.Services.AddValidatedConfiguration<MongoDbSettings>(builder.Configuration, "MongoDB");
+builder.Services.AddValidatedConfiguration<UsageSettings>(builder.Configuration, "Usage");
+builder.Services.AddValidatedConfiguration<BankRulesSettings>(builder.Configuration, "BankRules");
+
 // Controllers + JSON
 builder.Services.AddControllers().AddJsonOptions(x =>
     x.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles);
+
+// API Versioning
+builder.Services.AddApiVersioningSupport();
 
 // Swagger
 builder.Services.AddEndpointsApiExplorer();
@@ -58,10 +71,6 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 // Auth Repositories
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IRoleRepository, RoleRepository>();
-
-// Configs
-builder.Services.Configure<MongoDbSettings>(builder.Configuration.GetSection("MongoDB"));
-builder.Services.Configure<UsageSettings>(builder.Configuration.GetSection("Usage"));
 
 // ---- Mongo Driver (para Parser repos) ----
 var connStr = builder.Configuration["MongoDB:ConnectionString"] ?? "mongodb://localhost:27017";
@@ -92,9 +101,6 @@ builder.Services.AddScoped<IPdfParsingService, PdfParserService>();
 builder.Services.AddHostedService<MongoIndexHostedService>();
 builder.Services.AddHostedService<RuleSeederHostedService>();
 
-// Configure BankRulesSettings
-builder.Services.Configure<BankRulesSettings>(builder.Configuration.GetSection("BankRules"));
-
 // ==============================
 //   Identity con EF InMemory
 //   (quitamos EF-Mongo)
@@ -108,7 +114,7 @@ builder.Services
     .AddDefaultTokenProviders();
 
 // JWT
-var configuration = builder.Configuration;
+var jwtSettings = builder.Configuration.GetSection("JWT").Get<JwtSettings>() ?? new JwtSettings();
 builder.Services.AddAuthentication(options =>
 {
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -126,11 +132,9 @@ builder.Services.AddAuthentication(options =>
         ValidateLifetime = true,
         ClockSkew = TimeSpan.Zero,
         IssuerSigningKey = new SymmetricSecurityKey(
-            Encoding.ASCII.GetBytes(configuration["JWT:Secret"] ?? "dev-secret-change-me"))
+            Encoding.ASCII.GetBytes(jwtSettings.Secret))
     };
 });
-
-
 
 // CORS
 builder.Services.AddCors(p => p.AddPolicy("corsapp", policy =>
@@ -146,6 +150,10 @@ var app = builder.Build();
 
 // Middleware
 app.UseCors("corsapp");
+
+// Rate limiting (before authentication)
+app.UseMiddleware<RateLimitingMiddleware>();
+
 app.UseSwagger();
 app.UseSwaggerUI();
 

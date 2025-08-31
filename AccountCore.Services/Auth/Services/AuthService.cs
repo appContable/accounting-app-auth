@@ -16,6 +16,8 @@ using Microsoft.AspNetCore.Mvc;
 using AccountCore.Services.Auth.Errors;
 using AccountCore.Services.Auth.Interfaces;
 using AccountCore.DTO.Auth.Validation;
+using AccountCore.API.Configuration;
+using Microsoft.Extensions.Options;
 
 namespace AccountCore.Services.Auth.Services
 {
@@ -23,14 +25,14 @@ namespace AccountCore.Services.Auth.Services
     {
         private readonly ILogger<AuthService> _logger;
         private readonly IMapper _mapper;
-        private readonly IConfiguration _configuration;
+        private readonly JwtSettings _jwtSettings;
         private readonly IUserRepository _userRepository;
 
-        public AuthService(ILogger<AuthService> logger, IMapper mapper, IConfiguration configuration, IUserRepository userRepository)
+        public AuthService(ILogger<AuthService> logger, IMapper mapper, IOptions<JwtSettings> jwtOptions, IUserRepository userRepository)
         {
             _logger = logger;
             _mapper = mapper;
-            _configuration = configuration;
+            _jwtSettings = jwtOptions.Value;
             _userRepository = userRepository;
         }
 
@@ -68,7 +70,7 @@ namespace AccountCore.Services.Auth.Services
 
                 // Create JWT token
                 var tokenHandler = new JwtSecurityTokenHandler();
-                var secret = _configuration["JWT:Secret"] ?? throw new InvalidOperationException("JWT:Secret missing");
+                var secret = _jwtSettings.Secret;
                 var tokenKey = Encoding.ASCII.GetBytes(secret);
 
                 var fullName = $"{user.FirstName ?? ""} {user.LastName ?? ""}".Trim();
@@ -100,14 +102,10 @@ namespace AccountCore.Services.Auth.Services
                     }
                 }
 
-                var tokenValidityInMinutesValue = _configuration["JWT:TokenValidityInMinutes"] ?? "60";
-                if (!int.TryParse(tokenValidityInMinutesValue, out int tokenValidityInMinutes))
-                    tokenValidityInMinutes = 60;
-
                 var tokenDescriptor = new SecurityTokenDescriptor()
                 {
                     Subject = new ClaimsIdentity(claims),
-                    Expires = DateTime.UtcNow.AddMinutes(tokenValidityInMinutes),
+                    Expires = DateTime.UtcNow.AddMinutes(_jwtSettings.TokenValidityInMinutes),
                     SigningCredentials = new SigningCredentials(
                         new SymmetricSecurityKey(tokenKey), SecurityAlgorithms.HmacSha256Signature),
                 };
@@ -115,20 +113,16 @@ namespace AccountCore.Services.Auth.Services
                 var token = tokenHandler.CreateToken(tokenDescriptor);
                 var refreshToken = GenerateRefreshToken();
 
-                var refreshTokenValidityInDaysValue = _configuration["JWT:RefreshTokenValidityInDays"] ?? "7";
-                if (!int.TryParse(refreshTokenValidityInDaysValue, out int refreshTokenValidityInDays))
-                    refreshTokenValidityInDays = 7;
-
                 // Update refresh token if expired or missing
                 if (user.RefreshTokenExpiryTime < DateTime.UtcNow || string.IsNullOrEmpty(user.RefreshToken))
                 {
                     user.RefreshToken = refreshToken;
-                    user.RefreshTokenExpiryTime = DateTime.Now.AddDays(refreshTokenValidityInDays);
+                    user.RefreshTokenExpiryTime = DateTime.Now.AddDays(_jwtSettings.RefreshTokenValidityInDays);
                 }
                 else
                 {
                     refreshToken = user.RefreshToken;
-                    user.RefreshTokenExpiryTime = DateTime.Now.AddDays(refreshTokenValidityInDays);
+                    user.RefreshTokenExpiryTime = DateTime.Now.AddDays(_jwtSettings.RefreshTokenValidityInDays);
                 }
 
                 var returnToken = new ReturnTokenDTO()
@@ -177,14 +171,6 @@ namespace AccountCore.Services.Auth.Services
                 var newAccessToken = CreateToken(principalIdentity.Claims.ToList());
                 var newRefreshToken = GenerateRefreshToken();
 
-                var refreshTokenValidityInDaysValue = _configuration["JWT:RefreshTokenValidityInDays"] ?? "7";
-                if (!int.TryParse(refreshTokenValidityInDaysValue, out int refreshTokenValidityInDays))
-                    refreshTokenValidityInDays = 7;
-                
-                var tokenValidityInMinutesValue = _configuration["JWT:TokenValidityInMinutes"] ?? "60";
-                if (!int.TryParse(tokenValidityInMinutesValue, out int tokenValidityInMinutes))
-                    tokenValidityInMinutes = 60;
-
                 var user = await _userRepository.GetByEmailAsync(username);
                 if (user == null || user.RefreshToken != refreshToken || user.RefreshTokenExpiryTime <= DateTime.Now)
                 {
@@ -197,7 +183,7 @@ namespace AccountCore.Services.Auth.Services
                 }
 
                 user.RefreshToken = newRefreshToken;
-                user.RefreshTokenExpiryTime = DateTime.Now.AddDays(refreshTokenValidityInDays);
+                user.RefreshTokenExpiryTime = DateTime.Now.AddDays(_jwtSettings.RefreshTokenValidityInDays);
                 await _userRepository.UpdateAsync(user);
 
                 var fullName = $"{user.FirstName ?? ""} {user.LastName ?? ""}".Trim();
@@ -206,7 +192,7 @@ namespace AccountCore.Services.Auth.Services
                 var returnToken = new ReturnTokenDTO()
                 {
                     Token = new JwtSecurityTokenHandler().WriteToken(newAccessToken),
-                    Expire = DateTime.UtcNow.AddMinutes(tokenValidityInMinutes),
+                    Expire = DateTime.UtcNow.AddMinutes(_jwtSettings.TokenValidityInMinutes),
                     Roles = userRoles.Select(r => r.RoleKey ?? ""),
                     LoginId = user.Id ?? "",
                     FullName = fullName,
@@ -256,7 +242,7 @@ namespace AccountCore.Services.Auth.Services
                 user.ExpirationTokenDate = DateTime.UtcNow.AddHours(1);
                 await _userRepository.UpdateAsync(user);
 
-                var urlBase = _configuration["UiUrlBase"] ?? "http://localhost:4200";
+                var urlBase = "http://localhost:4200"; // TODO: Get from ApiSettings
                 var link = $"{urlBase}/set-new-password?UserId={user.Id}&code={token}";
 
                 // TODO: Send email with reset link
@@ -318,20 +304,16 @@ namespace AccountCore.Services.Auth.Services
 
         private JwtSecurityToken CreateToken(List<Claim> authClaims)
         {
-            var secret = _configuration["JWT:Secret"] ?? throw new InvalidOperationException("JWT:Secret missing");
+            var secret = _jwtSettings.Secret;
             var authSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret));
 
-            var tokenValidityInMinutesValue = _configuration["JWT:TokenValidityInMinutes"] ?? "60";
-            if (!int.TryParse(tokenValidityInMinutesValue, out int tokenValidityInMinutes))
-                tokenValidityInMinutes = 60;
-
-            var issuer = _configuration["JWT:ValidIssuer"] ?? "AccountCore.API";
-            var audience = _configuration["JWT:ValidAudience"] ?? "AccountCore.Client";
+            var issuer = _jwtSettings.ValidIssuer;
+            var audience = _jwtSettings.ValidAudience;
 
             var token = new JwtSecurityToken(
                 issuer: issuer,
                 audience: audience,
-                expires: DateTime.Now.AddMinutes(tokenValidityInMinutes),
+                expires: DateTime.Now.AddMinutes(_jwtSettings.TokenValidityInMinutes),
                 claims: authClaims,
                 signingCredentials: new SigningCredentials(authSigningKey, SecurityAlgorithms.HmacSha256)
                 );
@@ -349,7 +331,7 @@ namespace AccountCore.Services.Auth.Services
 
         private ClaimsPrincipal? GetPrincipalFromExpiredToken(string? token)
         {
-            var secret = _configuration["JWT:Secret"] ?? throw new InvalidOperationException("JWT:Secret missing");
+            var secret = _jwtSettings.Secret;
             var tokenValidationParameters = new TokenValidationParameters
             {
                 ValidateAudience = false,
