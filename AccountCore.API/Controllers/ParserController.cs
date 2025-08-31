@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Options;
 using Swashbuckle.AspNetCore.Annotations;
+using System.Security.Claims;
 using AccountCore.DTO.Parser;                 // UploadPdfRequest
 using AccountCore.DTO.Parser.Settings;        // UsageSettings
 using AccountCore.Services.Parser.Exceptions;

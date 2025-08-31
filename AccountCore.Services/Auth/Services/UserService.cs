@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using AccountCore.DTO.Auth.IServices;
 using AccountCore.DAL.Auth.Models;
 using AutoMapper;
@@ -8,6 +8,7 @@ using AccountCore.DTO.Auth.Parameters;
 using AccountCore.DTO.Auth.Entities.User;
 using AccountCore.DTO.Auth.IServices.Result;
 using Microsoft.AspNetCore.Http;
+using AccountCore.Services.Auth.Errors;
 
 namespace AccountCore.Services.Auth.Services
 {

@@ -19,6 +19,8 @@ using System.Text;
 using System.Text.Json.Serialization;
 using AccountCore.API.Auth;
 using AccountCore.API.Helpers;
+using AccountCore.API.HostedServices;
+using AccountCore.API.Infraestructure;
 
 //
 // ---- Fix GUID legacy para UserCategoryRule (Mongo driver) ----
@@ -75,12 +77,17 @@ builder.Services.AddScoped<IMongoDatabase>(sp =>
 // ---- Repos/servicios del Parser ----
 builder.Services.AddScoped<IParseUsageRepository, ParseUsageRepository>();
 builder.Services.AddScoped<IUserCategoryRuleRepository, UserCategoryRuleRepository>();
-// Hosted service para índices Mongo
-builder.Services.AddHostedService<MongoIndexHostedService>();
 builder.Services.AddScoped<IBankCategoryRuleRepository, BankCategoryRuleRepository>();
 builder.Services.AddScoped<IBankRulesProvider, MongoBankRulesProvider>();
 builder.Services.AddScoped<ICategorizationService, CategorizationService>();
 builder.Services.AddScoped<IPdfParsingService, PdfParserService>();
+
+// Hosted services
+builder.Services.AddHostedService<MongoIndexHostedService>();
+builder.Services.AddHostedService<RuleSeederHostedService>();
+
+// Configure BankRulesSettings
+builder.Services.Configure<BankRulesSettings>(builder.Configuration.GetSection("BankRules"));
 
 // ==============================
 //   Identity con EF InMemory

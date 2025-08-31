@@ -37,7 +37,7 @@ namespace AccountCore.Services.Parser
             return await ParseAsync(pdfStream, bank, userId, CancellationToken.None);
         }
 
-        // Sobrecarga con CancellationToken
+        // Implementación con CancellationToken
         public async Task<ParseResult?> ParseAsync(Stream pdfStream, string bank, string userId, CancellationToken ct)
         {
             var now = DateTime.UtcNow;

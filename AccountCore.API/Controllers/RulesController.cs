@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Swashbuckle.AspNetCore.Annotations;
+using System.Security.Claims;
 using AccountCore.Services.Parser.Interfaces;     // IUserCategoryRuleRepository, ICategorizationService
 
 namespace AccountCore.API.Controllers

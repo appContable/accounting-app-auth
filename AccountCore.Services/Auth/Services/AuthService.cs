@@ -1,4 +1,4 @@
-﻿using AccountCore.DTO.Auth.IServices;
+using AccountCore.DTO.Auth.IServices;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Text;
@@ -13,6 +13,7 @@ using AccountCore.DTO.Auth.IServices.Result;
 using AccountCore.DTO.Auth.Entities.User;
 using System.Security.Cryptography;
 using Microsoft.AspNetCore.Mvc;
+using AccountCore.Services.Auth.Errors;
 
 namespace AccountCore.Services.Auth.Services
 {

@@ -1,9 +1,10 @@
-﻿using AccountCore.DTO.Auth.IServices;
+using AccountCore.DTO.Auth.IServices;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using AccountCore.DTO.Auth.Entities.User;
 using Swashbuckle.AspNetCore.Annotations;
+using AccountCore.Services.Auth.Errors;
 
 namespace AccountCore.API.Controllers
 {
