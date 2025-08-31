@@ -1,4 +1,5 @@
 using AutoMapper;
+using AccountCore.DAL.Auth.Models;
 using AccountCore.DTO.Auth.IServices;
 using AccountCore.Services.Auth;
 using AccountCore.Services.Auth.Services;
