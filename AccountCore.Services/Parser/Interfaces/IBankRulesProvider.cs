@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using AccountCore.DAL.Parser.Models;
 
 namespace AccountCore.Services.Parser.Interfaces

@@ -13,7 +13,6 @@ using AccountCore.DTO.Auth.IServices.Result;
 using AccountCore.DTO.Auth.Entities.User;
 using System.Security.Cryptography;
 using Microsoft.AspNetCore.Mvc;
-using System;
 
 namespace AccountCore.Services.Auth.Services
 {
@@ -82,10 +81,10 @@ namespace AccountCore.Services.Auth.Services
                 {
                     new Claim(ClaimTypes.Name, username),
                     new Claim("FullName", fullName),
-                    new Claim(ClaimsPrincipalExtensions.UserId, user.Id),
-                    new Claim(ClaimsPrincipalExtensions.Email, user.Email),
-                    new Claim(ClaimsPrincipalExtensions.FirstName, user.FirstName ?? string.Empty),
-                    new Claim(ClaimsPrincipalExtensions.LastName, user.LastName ?? string.Empty)
+                    new Claim(ClaimsPrincipalExtensions.UserId, user?.Id),
+                    new Claim(ClaimsPrincipalExtensions.Email, user?.Email),
+                    new Claim(ClaimsPrincipalExtensions.FirstName, user?.FirstName ?? string.Empty),
+                    new Claim(ClaimsPrincipalExtensions.LastName, user?.LastName ?? string.Empty)
                 };
 
                     var roles = new List<string>();

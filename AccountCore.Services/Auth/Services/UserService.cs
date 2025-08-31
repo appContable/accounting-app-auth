@@ -8,8 +8,6 @@ using AccountCore.DTO.Auth.Parameters;
 using AccountCore.DTO.Auth.Entities.User;
 using AccountCore.DTO.Auth.IServices.Result;
 using Microsoft.AspNetCore.Http;
-using System.Net;
-using System.Security.Cryptography;
 
 namespace AccountCore.Services.Auth.Services
 {

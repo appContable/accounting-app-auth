@@ -19,8 +19,6 @@ using System.Text;
 using System.Text.Json.Serialization;
 using AccountCore.API.Auth;
 using AccountCore.API.Helpers;
-using Microsoft.Extensions.Options;
-using Microsoft.Extensions.Logging;
 
 //
 // ---- Fix GUID legacy para UserCategoryRule (Mongo driver) ----

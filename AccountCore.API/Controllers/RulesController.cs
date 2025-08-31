@@ -1,11 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Swashbuckle.AspNetCore.Annotations;
-using System;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-
-using AccountCore.DAL.Parser.Models;              // UserCategoryRule
 using AccountCore.Services.Parser.Interfaces;     // IUserCategoryRuleRepository, ICategorizationService
 
 namespace AccountCore.API.Controllers
@@ -15,6 +11,7 @@ namespace AccountCore.API.Controllers
     /// </summary>
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
     public class RulesController : ControllerBase
     {
         private readonly IUserCategoryRuleRepository _userRepo;
@@ -31,21 +28,25 @@ namespace AccountCore.API.Controllers
         /// <summary>
         /// Lista las reglas del usuario para un banco. Podés filtrar por solo activas.
         /// </summary>
-        /// <param name="userId">Identificador del usuario.</param>
         /// <param name="bank">Banco al que aplican las reglas.</param>
         /// <param name="onlyActive">Si true, solo devuelve reglas activas.</param>
         [HttpGet]
         [SwaggerOperation(Summary = "Lista reglas del usuario para un banco")]
         [SwaggerResponse(StatusCodes.Status200OK, "Listado de reglas")]
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Parámetros inválidos")]
+        [SwaggerResponse(StatusCodes.Status401Unauthorized, "Token no válido o expirado")]
         public async Task<IActionResult> Get(
-            [FromQuery] string userId,
             [FromQuery] string bank,
             [FromQuery] bool onlyActive = false,
             CancellationToken ct = default)
         {
-            if (string.IsNullOrWhiteSpace(userId) || string.IsNullOrWhiteSpace(bank))
-                return BadRequest("userId y bank son requeridos.");
+            if (string.IsNullOrWhiteSpace(bank))
+                return BadRequest("bank es requerido.");
+
+            // Extract user ID from JWT token
+            var userId = User.FindFirst(ClaimsPrincipalExtensions.UserId)?.Value;
+            if (string.IsNullOrWhiteSpace(userId))
+                return BadRequest("Token no contiene información de usuario válida.");
 
             var rules = await _userRepo.GetByUserAndBankAsync(userId, bank, ct);
             if (onlyActive) rules = rules.Where(r => r.Active).ToList();
@@ -61,17 +62,24 @@ namespace AccountCore.API.Controllers
         [SwaggerOperation(Summary = "Aprende/actualiza una regla de categorización del usuario")]
         [SwaggerResponse(StatusCodes.Status200OK, "Regla guardada")]
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Datos inválidos")]
+        [SwaggerResponse(StatusCodes.Status401Unauthorized, "Token no válido o expirado")]
         public async Task<IActionResult> Learn(
             [FromBody] AccountCore.DTO.Parser.Parameters.LearnRuleRequest body,
             CancellationToken ct = default)
         {
-            if (string.IsNullOrWhiteSpace(body.UserId) ||
-                string.IsNullOrWhiteSpace(body.Bank) ||
+            if (string.IsNullOrWhiteSpace(body.Bank) ||
                 string.IsNullOrWhiteSpace(body.Pattern) ||
                 string.IsNullOrWhiteSpace(body.Category))
             {
-                return BadRequest("Campos requeridos: userId, bank, pattern, category.");
+                return BadRequest("Campos requeridos: bank, pattern, category.");
             }
+
+            // Extract user ID from JWT token and set it in the request
+            var userId = User.FindFirst(ClaimsPrincipalExtensions.UserId)?.Value;
+            if (string.IsNullOrWhiteSpace(userId))
+                return BadRequest("Token no contiene información de usuario válida.");
+
+            body.UserId = userId;
 
             var saved = await _categorizationService.LearnAsync(body, ct);
             return Ok(saved);
@@ -85,15 +93,20 @@ namespace AccountCore.API.Controllers
         [SwaggerOperation(Summary = "Desactiva una regla de usuario")]
         [SwaggerResponse(StatusCodes.Status204NoContent, "Regla desactivada")]
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Parámetros inválidos")]
+        [SwaggerResponse(StatusCodes.Status401Unauthorized, "Token no válido o expirado")]
         [SwaggerResponse(StatusCodes.Status404NotFound, "Regla no encontrada")]
         public async Task<IActionResult> Deactivate(
             Guid id,
-            [FromQuery] string userId,
             [FromQuery] string bank,
             CancellationToken ct = default)
         {
-            if (id == Guid.Empty || string.IsNullOrWhiteSpace(userId) || string.IsNullOrWhiteSpace(bank))
-                return BadRequest("id, userId y bank son requeridos.");
+            if (id == Guid.Empty || string.IsNullOrWhiteSpace(bank))
+                return BadRequest("id y bank son requeridos.");
+
+            // Extract user ID from JWT token
+            var userId = User.FindFirst(ClaimsPrincipalExtensions.UserId)?.Value;
+            if (string.IsNullOrWhiteSpace(userId))
+                return BadRequest("Token no contiene información de usuario válida.");
 
             var rules = await _userRepo.GetByUserAndBankAsync(userId, bank, ct);
             var rule = rules.FirstOrDefault(r => r.Id == id);

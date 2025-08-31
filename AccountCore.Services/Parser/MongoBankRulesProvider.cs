@@ -1,5 +1,3 @@
-using System.Collections.Generic;
-using System.Linq;
 using AccountCore.Services.Parser.Interfaces;     // IBankRulesProvider, IBankCategoryRuleRepository
 using AccountCore.DAL.Parser.Models;              // BankCategoryRule
 

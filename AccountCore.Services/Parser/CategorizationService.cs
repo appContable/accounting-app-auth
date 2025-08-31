@@ -1,9 +1,3 @@
-// AccountCore.Services.Parser/CategorizationService.cs
-using System;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Collections.Generic;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Globalization;

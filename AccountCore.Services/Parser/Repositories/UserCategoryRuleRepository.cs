@@ -1,5 +1,3 @@
-using System.Threading;
-using System.Threading.Tasks;
 using MongoDB.Driver;
 using AccountCore.DAL.Parser.Models;
 using AccountCore.Services.Parser.Interfaces;

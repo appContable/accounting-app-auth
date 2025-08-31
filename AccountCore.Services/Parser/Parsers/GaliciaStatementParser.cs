@@ -1,6 +1,3 @@
-using System;
-using System.Linq;
-using System.Collections.Generic;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using AccountCore.DAL.Parser.Models;

@@ -5,12 +5,12 @@
         /// <summary>
         /// User mail
         /// </summary>
-        public string Email { get; set; }
+        public string? Email { get; set; }
 
         /// <summary>
         /// User Password
         /// </summary>
-        public string Password { get; set; }
+        public string? Password { get; set; }
 
     }
 }

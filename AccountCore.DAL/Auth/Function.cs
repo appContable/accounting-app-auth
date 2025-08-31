@@ -1,6 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-
+﻿
 namespace AccountCore.DAL.Auth.Models
 {
     public partial class Function

@@ -1,5 +1,3 @@
-using System.Threading;
-using System.Threading.Tasks;
 using AccountCore.DTO.Parser.Parameters;
 using AccountCore.DAL.Parser.Models;
 

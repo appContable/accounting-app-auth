@@ -1,15 +1,9 @@
-using AccountCore.API.Auth;
 using AccountCore.DTO.Auth.Entities;
 using AccountCore.DTO.Auth.Entities.User;
 using AccountCore.DTO.Auth.IServices;
 using AccountCore.DTO.Auth.ReturnsModels;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.IdentityModel.Tokens;
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
-using System.Text;
 using Swashbuckle.AspNetCore.Annotations;
 
 namespace AccountCore.API.Controllers
@@ -30,6 +24,8 @@ namespace AccountCore.API.Controllers
         [AllowAnonymous]
         [HttpPost("authentication")]
         [SwaggerOperation(Summary = "Authenticate user and generate JWT token")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Authentication successful", typeof(ReturnTokenDTO))]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Invalid credentials or validation errors")]
         public async Task<IActionResult> Authentication([FromBody] AuthenticationDTO user)
         {
             var token = await _authService.Authentication(user.Email, user.Password);
@@ -42,8 +38,11 @@ namespace AccountCore.API.Controllers
             return BadRequest(token.Errors);
         }
 
+        [AllowAnonymous]
         [HttpPost("SetNewPassword/{userId}/{codeBase64}")]
         [SwaggerOperation(Summary = "Confirm password reset with verification code")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Password reset successfully")]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Invalid request or validation errors")]
         public async Task<IActionResult> SetNewPassword(string userId, string codeBase64, SetPasswordDTO setPasswordDTO)
         {
             var token = await _authService.SetNewPassword(userId, codeBase64, setPasswordDTO);
@@ -56,8 +55,11 @@ namespace AccountCore.API.Controllers
             return BadRequest(token.Errors);
         }
 
+        [AllowAnonymous]
         [HttpPost("ResetPassword")]
         [SwaggerOperation(Summary = "Send password reset instructions to email")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Password reset instructions sent")]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Invalid email or user not found")]
         public async Task<IActionResult> ResetPassword([FromForm] string email)
         {
             var token = await _authService.ResetPassword(email);
@@ -70,9 +72,12 @@ namespace AccountCore.API.Controllers
             return BadRequest(token.Errors);
         }
 
+        [AllowAnonymous]
         [HttpPost]
         [Route("refresh-token")]
         [SwaggerOperation(Summary = "Refresh JWT using a valid refresh token")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Token refreshed successfully", typeof(ReturnTokenDTO))]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Invalid token or refresh token")]
         public async Task<IActionResult> RefreshToken(TokenModelDTO tokenModel)
         {
             if (tokenModel is null)

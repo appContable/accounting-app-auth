@@ -1,8 +1,5 @@
-﻿using AccountCore.DTO.Auth.Entities;
-using AccountCore.DTO.Auth.Entities.User;
+﻿using AccountCore.DTO.Auth.Entities.User;
 using AccountCore.DTO.Auth.IServices.Result;
-using AccountCore.DTO.Auth.Parameters;
-using AccountCore.DTO.Auth.ReturnsModels;
 
 namespace AccountCore.DTO.Auth.IServices
 {

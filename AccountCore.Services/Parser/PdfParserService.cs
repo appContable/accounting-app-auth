@@ -1,7 +1,6 @@
 using System.Text;
 using System.Text.RegularExpressions;
 using AccountCore.DAL.Parser.Models;
-
 using AccountCore.DTO.Parser.Settings;
 using AccountCore.Services.Parser.Exceptions;
 using AccountCore.Services.Parser.Interfaces;

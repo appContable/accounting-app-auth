@@ -1,11 +1,6 @@
-using MongoDB.Bson;
 using MongoDB.Driver;
 using AccountCore.DAL.Parser.Models;
 using AccountCore.Services.Parser.Interfaces;
-using System;
-using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace AccountCore.Services.Parser.Repositories
 {

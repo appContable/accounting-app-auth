@@ -1,13 +1,7 @@
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using AccountCore.DAL.Parser.Models;
 using AccountCore.DTO.Parser.Settings;
 using AccountCore.Services.Parser.Interfaces;
-using System;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace AccountCore.API.HostedServices
 {

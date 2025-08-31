@@ -8,7 +8,9 @@ namespace AccountCore.DTO.Parser.Parameters
     /// </summary>
     public class LearnRuleRequest
     {
-        [Required]
+        /// <summary>
+        /// User ID extraído del token JWT. No debe ser enviado por el cliente.
+        /// </summary>
         [MaxLength(128)]
         public string UserId { get; set; } = string.Empty;
 

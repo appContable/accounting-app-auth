@@ -1,4 +1,3 @@
-using System;
 using AccountCore.DAL.Parser.Models; // RulePatternType
 
 namespace AccountCore.DTO.Parser
