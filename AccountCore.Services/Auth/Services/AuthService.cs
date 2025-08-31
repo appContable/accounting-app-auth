@@ -121,7 +121,7 @@ namespace AccountCore.Services.Auth.Services
                 }
                 else
                 {
-                    refreshToken = user.RefreshToken;
+                    refreshToken = user.RefreshToken!;
                     user.RefreshTokenExpiryTime = DateTime.Now.AddDays(_jwtSettings.RefreshTokenValidityInDays);
                 }
 
