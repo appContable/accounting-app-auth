@@ -20,7 +20,6 @@ using System.Text;
 using System.Text.Json.Serialization;
 using AccountCore.API.Auth;
 using AccountCore.API.Helpers;
-using AccountCore.API.HostedServices;
 using AccountCore.API.Infraestructure;
 using AccountCore.Services.Auth.Interfaces;
 using AccountCore.Services.Auth.Repositories;
