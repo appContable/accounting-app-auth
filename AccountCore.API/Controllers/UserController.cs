@@ -1,4 +1,4 @@
-﻿using AccountCore.DTO.Auth.Entities;
+using AccountCore.DTO.Auth.Entities;
 using AccountCore.DTO.Auth.Parameters;
 using AccountCore.DTO.Auth.IServices;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -7,12 +7,12 @@ using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 using AccountCore.DTO.Auth.Entities.User;
 using Swashbuckle.AspNetCore.Annotations;
+using Microsoft.AspNetCore.Http;
 
 namespace AccountCore.API.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
     public class UserController : ControllerBase
     {
         public readonly IUserService _userService;
@@ -27,6 +27,11 @@ namespace AccountCore.API.Controllers
         [HttpGet]
         [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme, Roles = $"{ClaimsPrincipalExtensions.AdminRole}")]
         [SwaggerOperation(Summary = "Retrieve a user by id")]
+        [SwaggerResponse(StatusCodes.Status200OK, "User found", typeof(UserDTO))]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Invalid request")]
+        [SwaggerResponse(StatusCodes.Status401Unauthorized, "Token not valid or expired")]
+        [SwaggerResponse(StatusCodes.Status403Forbidden, "Insufficient permissions - admin role required")]
+        [SwaggerResponse(StatusCodes.Status404NotFound, "User not found")]
         public async Task<IActionResult> Get(string id)
         {
             var response = await _userService.GetById(id);
@@ -44,6 +49,10 @@ namespace AccountCore.API.Controllers
         [Route("Find")]
         [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme, Roles = $"{ClaimsPrincipalExtensions.AdminRole}")]
         [SwaggerOperation(Summary = "Find users matching the search value")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Users found", typeof(IEnumerable<UserDTO>))]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Invalid request")]
+        [SwaggerResponse(StatusCodes.Status401Unauthorized, "Token not valid or expired")]
+        [SwaggerResponse(StatusCodes.Status403Forbidden, "Insufficient permissions - admin role required")]
         public async Task<IActionResult> Find(string? value)
         {
             var response = await _userService.Find(value);
@@ -60,6 +69,8 @@ namespace AccountCore.API.Controllers
         [HttpPost]
         [AllowAnonymous]
         [SwaggerOperation(Summary = "Create a new user")]
+        [SwaggerResponse(StatusCodes.Status200OK, "User created successfully", typeof(UserDTO))]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Invalid user data or validation errors")]
         public async Task<IActionResult> Post([FromBody] UserPostDTO userDTO)
         {
             var response = await _userService.Create(userDTO);
@@ -76,6 +87,10 @@ namespace AccountCore.API.Controllers
         [Route("{userId}")]
         [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme, Roles = $"{ClaimsPrincipalExtensions.AdminRole}")]
         [SwaggerOperation(Summary = "Update an existing user")]
+        [SwaggerResponse(StatusCodes.Status200OK, "User updated successfully", typeof(UserDTO))]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Invalid user data or validation errors")]
+        [SwaggerResponse(StatusCodes.Status401Unauthorized, "Token not valid or expired")]
+        [SwaggerResponse(StatusCodes.Status403Forbidden, "Insufficient permissions - admin role required")]
         public async Task<IActionResult> Put(string userId, [FromBody] UserPostDTO userDto)
         {
             var response = await _userService.Update(userId, userDto);
@@ -92,6 +107,10 @@ namespace AccountCore.API.Controllers
         [Route("{userId}")]
         [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme, Roles = $"{ClaimsPrincipalExtensions.AdminRole}")]
         [SwaggerOperation(Summary = "Delete a user by id")]
+        [SwaggerResponse(StatusCodes.Status200OK, "User deleted successfully")]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Invalid request")]
+        [SwaggerResponse(StatusCodes.Status401Unauthorized, "Token not valid or expired")]
+        [SwaggerResponse(StatusCodes.Status403Forbidden, "Insufficient permissions - admin role required")]
         public async Task<IActionResult> Delete(string userId)
         {
             var response = await _userService.Delete(userId);
@@ -108,6 +127,10 @@ namespace AccountCore.API.Controllers
         [Route("Enable/{userId}")]
         [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme, Roles = $"{ClaimsPrincipalExtensions.AdminRole}")]
         [SwaggerOperation(Summary = "Enable a user account")]
+        [SwaggerResponse(StatusCodes.Status200OK, "User account enabled successfully")]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Invalid request")]
+        [SwaggerResponse(StatusCodes.Status401Unauthorized, "Token not valid or expired")]
+        [SwaggerResponse(StatusCodes.Status403Forbidden, "Insufficient permissions - admin role required")]
         public async Task<IActionResult> Enable(string userId)
         {
             var response = await _userService.Enable(userId);
@@ -124,6 +147,10 @@ namespace AccountCore.API.Controllers
         [Route("Disable/{userId}")]
         [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme, Roles = $"{ClaimsPrincipalExtensions.AdminRole}")]
         [SwaggerOperation(Summary = "Disable a user account")]
+        [SwaggerResponse(StatusCodes.Status200OK, "User account disabled successfully")]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Invalid request")]
+        [SwaggerResponse(StatusCodes.Status401Unauthorized, "Token not valid or expired")]
+        [SwaggerResponse(StatusCodes.Status403Forbidden, "Insufficient permissions - admin role required")]
         public async Task<IActionResult> Disable(string userId)
         {
             var response = await _userService.Disable(userId);
