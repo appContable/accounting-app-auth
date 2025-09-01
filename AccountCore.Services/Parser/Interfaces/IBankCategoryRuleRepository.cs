@@ -1,6 +1,3 @@
-using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
 using AccountCore.DAL.Parser.Models;
 
 namespace AccountCore.Services.Parser.Interfaces

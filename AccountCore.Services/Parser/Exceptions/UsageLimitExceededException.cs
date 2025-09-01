@@ -1,4 +1,3 @@
-using System;
 
 namespace AccountCore.Services.Parser.Exceptions
 {

@@ -1,4 +1,5 @@
 using AutoMapper;
+using AccountCore.DAL.Auth.Models;
 using AccountCore.DTO.Auth.IServices;
 using AccountCore.Services.Auth;
 using AccountCore.Services.Auth.Services;
@@ -19,8 +20,11 @@ using System.Text;
 using System.Text.Json.Serialization;
 using AccountCore.API.Auth;
 using AccountCore.API.Helpers;
-using Microsoft.Extensions.Options;
-using Microsoft.Extensions.Logging;
+using AccountCore.API.Infraestructure;
+using AccountCore.Services.Auth.Interfaces;
+using AccountCore.Services.Auth.Repositories;
+using AccountCore.DTO.Auth.Configuration;
+using AccountCore.API.Middleware;
 
 //
 // ---- Fix GUID legacy para UserCategoryRule (Mongo driver) ----
@@ -35,6 +39,18 @@ if (!BsonClassMap.IsClassMapRegistered(typeof(UserCategoryRule)))
 }
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Configuration
+builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("JWT"));
+builder.Services.Configure<MongoDbSettings>(builder.Configuration.GetSection("MongoDB"));
+builder.Services.Configure<UsageSettings>(builder.Configuration.GetSection("Usage"));
+
+// ---- MongoDB AuthContext ----
+builder.Services.AddScoped<AuthContext>(sp =>
+{
+    var configuration = sp.GetRequiredService<IConfiguration>();
+    return new AuthContext(configuration);
+});
 
 // Controllers + JSON
 builder.Services.AddControllers().AddJsonOptions(x =>
@@ -53,9 +69,9 @@ builder.Services.AddAutoMapper(typeof(Program));
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 
-// Configs
-builder.Services.Configure<MongoDbSettings>(builder.Configuration.GetSection("MongoDB"));
-builder.Services.Configure<UsageSettings>(builder.Configuration.GetSection("Usage"));
+// Auth Repositories
+builder.Services.AddScoped<IUserRepository, UserRepository>();
+builder.Services.AddScoped<IRoleRepository, RoleRepository>();
 
 // ---- Mongo Driver (para Parser repos) ----
 var connStr = builder.Configuration["MongoDB:ConnectionString"] ?? "mongodb://localhost:27017";
@@ -77,12 +93,12 @@ builder.Services.AddScoped<IMongoDatabase>(sp =>
 // ---- Repos/servicios del Parser ----
 builder.Services.AddScoped<IParseUsageRepository, ParseUsageRepository>();
 builder.Services.AddScoped<IUserCategoryRuleRepository, UserCategoryRuleRepository>();
-// Hosted service para índices Mongo
-builder.Services.AddHostedService<MongoIndexHostedService>();
 builder.Services.AddScoped<IBankCategoryRuleRepository, BankCategoryRuleRepository>();
-builder.Services.AddScoped<IBankRulesProvider, MongoBankRulesProvider>();
 builder.Services.AddScoped<ICategorizationService, CategorizationService>();
 builder.Services.AddScoped<IPdfParsingService, PdfParserService>();
+
+// Hosted services
+builder.Services.AddHostedService<MongoIndexHostedService>();
 
 // ==============================
 //   Identity con EF InMemory
@@ -97,7 +113,7 @@ builder.Services
     .AddDefaultTokenProviders();
 
 // JWT
-var configuration = builder.Configuration;
+var jwtSettings = builder.Configuration.GetSection("JWT").Get<JwtSettings>() ?? new JwtSettings();
 builder.Services.AddAuthentication(options =>
 {
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -115,11 +131,9 @@ builder.Services.AddAuthentication(options =>
         ValidateLifetime = true,
         ClockSkew = TimeSpan.Zero,
         IssuerSigningKey = new SymmetricSecurityKey(
-            Encoding.ASCII.GetBytes(configuration["JWT:Secret"] ?? "dev-secret-change-me"))
+            Encoding.ASCII.GetBytes(jwtSettings.Secret))
     };
 });
-
-
 
 // CORS
 builder.Services.AddCors(p => p.AddPolicy("corsapp", policy =>
@@ -135,8 +149,25 @@ var app = builder.Build();
 
 // Middleware
 app.UseCors("corsapp");
+
+// Rate limiting (before authentication)
+app.UseMiddleware<RateLimitingMiddleware>();
+
 app.UseSwagger();
 app.UseSwaggerUI();
+
+// Configurar Swagger UI para mostrar endpoints de testing
+if (app.Environment.IsDevelopment() || 
+    app.Configuration.GetValue<bool>("Testing:EnableTestEndpoints"))
+{
+    app.UseSwaggerUI(c =>
+    {
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "AccountCore API v1");
+        c.DisplayRequestDuration();
+        c.EnableTryItOutByDefault();
+        c.DocExpansion(Swashbuckle.AspNetCore.SwaggerUI.DocExpansion.List);
+    });
+}
 
 var httpsPort = builder.Configuration.GetValue<int?>("HttpsPort");
 if (httpsPort.HasValue)

@@ -4,17 +4,17 @@ namespace AccountCore.DAL.Auth.Models
 {
     public partial class User
     {
-        public string Id { get; set; }
+        public string? Id { get; set; }
 
-        public string FirstName { get; set; }
+        public string? FirstName { get; set; }
 
-        public string LastName { get; set; }
+        public string? LastName { get; set; }
 
         public string Email { get; set; } = null!;
 
         public bool IsLock { get; set; } = false;
 
-        public List<RoleUser> Roles { get; set; }
+        public List<RoleUser>? Roles { get; set; }
 
         public bool IsSysAdmin { get; set; } = false;
 

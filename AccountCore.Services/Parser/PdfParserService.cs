@@ -1,7 +1,6 @@
 using System.Text;
 using System.Text.RegularExpressions;
 using AccountCore.DAL.Parser.Models;
-
 using AccountCore.DTO.Parser.Settings;
 using AccountCore.Services.Parser.Exceptions;
 using AccountCore.Services.Parser.Interfaces;
@@ -38,7 +37,7 @@ namespace AccountCore.Services.Parser
             return await ParseAsync(pdfStream, bank, userId, CancellationToken.None);
         }
 
-        // Sobrecarga con CancellationToken
+        // Implementación con CancellationToken
         public async Task<ParseResult?> ParseAsync(Stream pdfStream, string bank, string userId, CancellationToken ct)
         {
             var now = DateTime.UtcNow;

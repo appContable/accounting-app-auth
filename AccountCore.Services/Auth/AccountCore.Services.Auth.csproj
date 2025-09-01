@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -22,5 +22,10 @@
     <!-- Rutas correctas (desde /AccountCore.Services/Auth/...) -->
     <ProjectReference Include="..\..\AccountCore.DTO\Auth\AccountCore.DTO.Auth.csproj" />
     <ProjectReference Include="..\..\AccountCore.DAL\Auth\AccountCore.DAL.Auth.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Interfaces\" />
+    <Folder Include="Repositories\" />
   </ItemGroup>
 </Project>

@@ -1,14 +1,9 @@
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Options;
 using Swashbuckle.AspNetCore.Annotations;
-using System;
 using System.Security.Claims;
-using System.Threading;
-using System.Threading.Tasks;
-
 using AccountCore.DTO.Parser;                 // UploadPdfRequest
 using AccountCore.DTO.Parser.Settings;        // UsageSettings
 using AccountCore.Services.Parser.Exceptions;
@@ -46,6 +41,7 @@ namespace AccountCore.API.Controllers
         /// Parsea un extracto bancario PDF y aplica categorización (reglas del banco + reglas aprendidas del usuario).
         /// </summary>
         [HttpPost("parse")]
+        [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
         [Consumes("multipart/form-data")]
         [SwaggerOperation(Summary = "Parsea un extracto PDF y categoriza (reglas banco + usuario)")]
         [SwaggerResponse(StatusCodes.Status200OK, "Resultado del parseo", typeof(ParseResult))]
@@ -87,6 +83,7 @@ namespace AccountCore.API.Controllers
         /// Devuelve la cantidad de parseos usados por el usuario en el mes y los restantes.
         /// </summary>
         [HttpGet("usage")]
+        [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
         [SwaggerOperation(Summary = "Uso actual del usuario")]
         [SwaggerResponse(StatusCodes.Status200OK, "Información de uso del usuario")]
         [SwaggerResponse(StatusCodes.Status401Unauthorized, "Token no válido o expirado")]

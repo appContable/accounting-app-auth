@@ -1,5 +1,4 @@
 ﻿using AccountCore.DAL.Auth.Models;
-using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
 
 namespace AccountCore.Services.Auth.Services

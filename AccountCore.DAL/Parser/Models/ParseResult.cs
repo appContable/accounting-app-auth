@@ -1,7 +1,3 @@
-// AccountCore.DAL.Parser/Models/BankStatement.cs
-using System;
-using System.Collections.Generic;
-
 namespace AccountCore.DAL.Parser.Models
 {
     public class ParseResult

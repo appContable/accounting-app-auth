@@ -1,14 +1,11 @@
-﻿using System;
-using System.Collections.Generic;
-
-namespace AccountCore.DAL.Auth.Models
+﻿namespace AccountCore.DAL.Auth.Models
 {
     /// <summary>
     /// Mapeo del usuario creador de las entidades.
     /// </summary>
     public class AuditUser
     {
-        public string Id { get; set; }
+        public string? Id { get; set; }
 
         public string? FirstName { get; set; }
 

@@ -58,16 +58,16 @@ Para habilitar HTTPS, defina `HttpsPort` en la configuración; el middleware `Us
 
 | Método | Ruta | Descripción | Parámetros | Cuerpo | Autorización |
 |-------|------|-------------|------------|-------|-------------|
-| POST | `/api/Parser/parse` | Parsea PDF y aplica reglas de categorización | - | `multipart/form-data` con `file`, `bank`, `userId` | Ninguna |
-| GET | `/api/Parser/usage` | Devuelve parseos usados y restantes del mes | `userId` (query) | - | Ninguna |
+| POST | `/api/Parser/parse` | Parsea PDF y aplica reglas de categorización | - | `multipart/form-data` con `file`, `bank` | **JWT Bearer** |
+| GET | `/api/Parser/usage` | Devuelve parseos usados y restantes del mes | - | - | **JWT Bearer** |
 
 ### Rules
 
 | Método | Ruta | Descripción | Parámetros | Cuerpo | Autorización |
 |-------|------|-------------|------------|-------|-------------|
-| GET | `/api/Rules` | Lista reglas del usuario para un banco | `userId`, `bank`, `onlyActive` (query) | - | Ninguna |
-| POST | `/api/Rules/learn` | Aprende o actualiza una regla | - | `LearnRuleRequest` (userId, bank, pattern, category) | Ninguna |
-| PATCH | `/api/Rules/{id}/deactivate` | Desactiva una regla existente | `id` (path), `userId`, `bank` (query) | - | Ninguna |
+| GET | `/api/Rules` | Lista reglas del usuario para un banco | `bank`, `onlyActive` (query) | - | **JWT Bearer** |
+| POST | `/api/Rules/learn` | Aprende o actualiza una regla | - | `LearnRuleRequest` (bank, pattern, category) | **JWT Bearer** |
+| PATCH | `/api/Rules/{id}/deactivate` | Desactiva una regla existente | `id` (path), `bank` (query) | - | **JWT Bearer** |
 
 ### User
 
@@ -82,6 +82,220 @@ Todas las rutas requieren JWT con rol `admin`, salvo creación de usuario.
 | DELETE | `/api/User/{userId}` | Elimina usuario | `userId` (path) | - | `admin` |
 | PATCH | `/api/User/Enable/{userId}` | Habilita cuenta de usuario | `userId` (path) | - | `admin` |
 | PATCH | `/api/User/Disable/{userId}` | Deshabilita cuenta de usuario | `userId` (path) | - | `admin` |
+
+### Test (Solo en desarrollo)
+
+Endpoints disponibles únicamente cuando `Testing:EnableTestEndpoints` está habilitado.
+
+| Método | Ruta | Descripción | Parámetros | Cuerpo | Autorización |
+|-------|------|-------------|------------|-------|-------------|
+| POST | `/api/Test/parse-pdf` | Parsea PDF sin autenticación (testing) | - | `multipart/form-data` con `file`, `bank` | Ninguna |
+| POST | `/api/Test/test-categorization` | Prueba categorización con datos de ejemplo | - | `TestCategorizationRequest` | Ninguna |
+| GET | `/api/Test/health` | Health check del servicio | - | - | Ninguna |
+
+### Version
+
+| Método | Ruta | Descripción | Parámetros | Cuerpo | Autorización |
+|-------|------|-------------|------------|-------|-------------|
+| GET | `/api/Version` | Información detallada de versión de la API | - | - | Ninguna |
+| GET | `/api/Version/simple` | Información básica de versión | - | - | Ninguna |
+
+## Contratos de Datos (DTOs)
+
+### Auth DTOs
+
+**AuthenticationDTO**
+```json
+{
+  "email": "usuario@ejemplo.com",
+  "password": "contraseña123"
+}
+```
+
+**SetPasswordDTO**
+```json
+{
+  "password": "nuevaContraseña123",
+  "confirmPassword": "nuevaContraseña123"
+}
+```
+
+**TokenModelDTO**
+```json
+{
+  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refreshToken": "base64RefreshToken..."
+}
+```
+
+**ReturnTokenDTO** (Respuesta de autenticación)
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "expire": "2024-01-15T15:30:00Z",
+  "roles": ["admin", "user"],
+  "loginId": "user-id-123",
+  "fullName": "Juan Pérez",
+  "refreshToken": "base64RefreshToken..."
+}
+```
+
+### User DTOs
+
+**UserPostDTO** (Crear/Actualizar usuario)
+```json
+{
+  "firstName": "Juan",
+  "lastName": "Pérez",
+  "email": "juan.perez@ejemplo.com",
+  "roleIds": ["role-id-1", "role-id-2"]
+}
+```
+
+**UserDTO** (Respuesta de usuario)
+```json
+{
+  "id": "user-id-123",
+  "firstName": "Juan",
+  "lastName": "Pérez",
+  "email": "juan.perez@ejemplo.com",
+  "isLock": false,
+  "isActive": true,
+  "creationDate": "2024-01-15T10:00:00Z",
+  "roles": [
+    {
+      "roleId": "role-id-1",
+      "roleKey": "admin",
+      "roleName": "Administrador",
+      "creationDate": "2024-01-15T10:00:00Z"
+    }
+  ]
+}
+```
+
+### Parser DTOs
+
+**UploadPdfRequest** (multipart/form-data)
+```
+bank: "galicia" | "supervielle"
+file: [archivo PDF]
+```
+
+**LearnRuleRequest**
+```json
+{
+  "bank": "galicia",
+  "pattern": "PAGO TARJETA",
+  "category": "Gastos",
+  "subcategory": "Tarjetas",
+  "patternType": "Contains",
+  "priority": 100
+}
+```
+
+**ParseResult** (Respuesta de parseo)
+```json
+{
+  "statement": {
+    "bank": "Banco Galicia",
+    "periodStart": "2024-01-01T00:00:00Z",
+    "periodEnd": "2024-01-31T23:59:59Z",
+    "accounts": [
+      {
+        "accountNumber": "22-04584827/3 (ARS)",
+        "currency": "ARS",
+        "openingBalance": 10000.00,
+        "closingBalance": 8500.00,
+        "transactions": [
+          {
+            "date": "2024-01-15T00:00:00Z",
+            "description": "PAGO TARJETA VISA",
+            "originalDescription": "PAGO TARJETAVISA RESUMEN",
+            "amount": -1500.00,
+            "type": "debit",
+            "balance": 8500.00,
+            "category": "Gastos",
+            "subcategory": "Tarjetas",
+            "categorySource": "BankRule",
+            "categoryRuleId": "rule-guid-123"
+          }
+        ]
+      }
+    ]
+  },
+  "warnings": [
+    "[diag] lines=150, parsed=25, range=2024-01-01->2024-01-31"
+  ]
+}
+```
+
+**Usage Response**
+```json
+{
+  "count": 15,
+  "remaining": 85
+}
+```
+
+### Test DTOs
+
+**TestCategorizationRequest**
+```json
+{
+  "bank": "galicia",
+  "description": "PAGO TARJETA VISA",
+  "amount": -1500.00
+}
+```
+
+### Version DTOs
+
+**Version Response**
+```json
+{
+  "version": "1.0.2",
+  "buildDate": "2024-01-15T10:30:00Z",
+  "buildNumber": "2",
+  "assemblyVersion": "1.0.2.0",
+  "environment": "Development",
+  "framework": "8.0.17",
+  "machineName": "DEV-MACHINE",
+  "timestamp": "2024-01-15T15:45:30Z"
+}
+```
+
+**Simple Version Response**
+```json
+{
+  "version": "1.0.2",
+  "buildDate": "2024-01-15T10:30:00Z"
+}
+```
+
+## Códigos de Estado HTTP
+
+### Respuestas Exitosas
+- `200 OK` - Operación exitosa
+- `204 No Content` - Operación exitosa sin contenido de respuesta
+
+### Errores del Cliente
+- `400 Bad Request` - Datos inválidos o faltantes
+- `401 Unauthorized` - Token JWT inválido o expirado
+- `403 Forbidden` - Permisos insuficientes
+- `404 Not Found` - Recurso no encontrado
+- `429 Too Many Requests` - Límite de uso excedido
+
+### Errores del Servidor
+- `500 Internal Server Error` - Error interno del servidor
+
+## Bancos Soportados
+
+El sistema actualmente soporta parseo de extractos PDF de los siguientes bancos:
+
+- **galicia** - Banco Galicia
+- **supervielle** - Banco Supervielle
+
+Cada banco tiene su propio parser especializado que maneja el formato específico de sus extractos PDF.
 
 ## Configuration & Environment Variables
 

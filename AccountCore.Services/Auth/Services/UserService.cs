@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using AccountCore.DTO.Auth.IServices;
 using AccountCore.DAL.Auth.Models;
 using AutoMapper;
@@ -8,8 +8,9 @@ using AccountCore.DTO.Auth.Parameters;
 using AccountCore.DTO.Auth.Entities.User;
 using AccountCore.DTO.Auth.IServices.Result;
 using Microsoft.AspNetCore.Http;
-using System.Net;
-using System.Security.Cryptography;
+using AccountCore.Services.Auth.Errors;
+using AccountCore.Services.Auth.Interfaces;
+using AccountCore.DTO.Auth.Validation;
 
 namespace AccountCore.Services.Auth.Services
 {
@@ -17,77 +18,83 @@ namespace AccountCore.Services.Auth.Services
     {
         private readonly ILogger<UserService> _logger;
         private readonly IMapper _mapper;
-        private readonly IConfiguration _configuration;
+        private readonly IUserRepository _userRepository;
+        private readonly IRoleRepository _roleRepository;
 
-        public UserService(ILogger<UserService> logger, IMapper mapper, IConfiguration configuration, IHttpContextAccessor context) : base(context)
+        public UserService(
+            ILogger<UserService> logger, 
+            IMapper mapper, 
+            IUserRepository userRepository,
+            IRoleRepository roleRepository,
+            IHttpContextAccessor context) : base(context)
         {
             _logger = logger;
             _mapper = mapper;
-            _configuration = configuration;
+            _userRepository = userRepository;
+            _roleRepository = roleRepository;
         }
-
 
         /// <inheritdoc/>
         public async Task<ServiceResult<UserDTO>> Create(UserPostDTO userDto)
         {
             try
             {
-                var errors = await ValidDTO(userDto);
-                if (errors.Any())
+                var validationResults = ValidationExtensions.ValidateObject(userDto);
+                if (validationResults.Any())
                 {
-                    return ServiceResult<UserDTO>.Error(errors);
+                    var validationErrors = validationResults.Select(v => new KeyValuePair<string, string>("Validation", v.ErrorMessage ?? "")).ToList();
+                    return ServiceResult<UserDTO>.Error(validationErrors);
                 }
 
-                UserDTO? response = null;
+                var businessErrors = await ValidateUserDto(userDto);
+                if (businessErrors.Any())
+                {
+                    return ServiceResult<UserDTO>.Error(businessErrors);
+                }
+
                 var token = User.GetPassEncode();
 
-                using (var dbcontext = new AuthContext(_configuration))
+                var user = new User
                 {
-                    var user = new User
+                    FirstName = userDto.FirstName,
+                    LastName = userDto.LastName,
+                    Email = userDto.Email,
+                    CreationDate = DateTime.UtcNow,
+                    Id = Guid.NewGuid().ToString(),
+                    Token = token,
+                    ExpirationTokenDate = DateTime.UtcNow.AddDays(2),
+                    IsActive = true,
+                    IsLock = false,
+                    IsSysAdmin = false,
+                };
+
+                var roles = await _roleRepository.GetRolesByIdsAsync(userDto.RoleIds ?? Array.Empty<string>());
+
+                foreach (var newRoleId in userDto.RoleIds ?? Array.Empty<string>())
+                {
+                    var newRole = roles.FirstOrDefault(r => r.RoleKey == newRoleId);
+                    if (newRole == null)
                     {
-                        FirstName = userDto.FirstName!,
-                        LastName = userDto.LastName!,
-                        Email = userDto.Email,
-                        CreationDate = DateTime.UtcNow,
-                        Id = Guid.NewGuid().ToString(),
-                        Token = token,
-                        ExpirationTokenDate = DateTime.UtcNow.AddDays(2),
-                        IsActive = true,
-                        IsLock = false,
-                        IsSysAdmin = false,
-                    };
-
-                    var roles = await dbcontext.Roles.AsQueryable().Where(r => r.IsEnabled && userDto.RoleIds!.Contains(r.RoleKey)).ToListAsync();
-
-                    foreach (var newRoleId in userDto.RoleIds!)
-                    {
-                        var newRole = roles.FirstOrDefault(r => r.RoleKey == newRoleId);
-                        if (newRole == null)
-                        {
-                            return ServiceResult<UserDTO>.Error(Errors.ErrorsKey.Argument, "Invalid Role");
-                        }
-
-                        user.AddRole(newRole);
+                        return ServiceResult<UserDTO>.Error(ErrorsKey.Argument, "Invalid Role");
                     }
 
-                    dbcontext.Users.Add(user);
-
-                    await dbcontext.SaveChangesAsync();
-
-                    response = _mapper.Map<UserDTO>(user);
+                    user.AddRole(newRole);
                 }
 
-                var urlBase = _configuration["UiUrlBase"];
-                var link = $"{urlBase}set-new-password?UserId={response?.Id}&code={token}";
+                var createdUser = await _userRepository.CreateAsync(user);
+                var response = _mapper.Map<UserDTO>(createdUser);
 
-                // var mail = _emailService.Send(userDto.Email, "Bienvenido", link);
+                // TODO: Send welcome email
+                // var urlBase = _configuration["UiUrlBase"];
+                // var link = $"{urlBase}/set-new-password?UserId={response.Id}&code={token}";
+                // await _emailService.Send(userDto.Email, "Bienvenido", link);
 
-                return ServiceResult<UserDTO>.Ok(response!);
+                return ServiceResult<UserDTO>.Ok(response);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "UserService.Create");
-                return ServiceResult<UserDTO>.Error(Errors.ErrorsKey.InternalErrorCode, ex.Message);
+                return ServiceResult<UserDTO>.Error(ErrorsKey.InternalErrorCode, ex.Message);
             }
         }
 
@@ -96,36 +103,14 @@ namespace AccountCore.Services.Auth.Services
         {
             try
             {
-                using (var dbcontext = new AuthContext(_configuration))
-                {
-                    var parameters = UserParameterDTO.LoadParameters(search);
-
-                    var query = dbcontext.Users.AsQueryable().Where(u => !u.IsSysAdmin);
-
-                    foreach (var paramater in parameters)
-                    {
-                        if (!string.IsNullOrEmpty(paramater.Name))
-                        {
-                            query = query.Where(u => u.FirstName.ToLower().Contains(paramater.Name.ToLower()) || u.LastName.ToLower().Contains(paramater.Name.ToLower()));
-                        }
-
-                        if (!string.IsNullOrEmpty(paramater.Email))
-                        {
-                            query = query.Where(u => u.Email.ToLower().Contains(paramater.Email.ToLower()));
-                        }
-                    }
-
-                    query = query.OrderBy(u => u.LastName);
-
-                    var response = await query.ToListAsync();
-
-                    return ServiceResult<IEnumerable<UserDTO>>.Ok(_mapper.Map<IEnumerable<UserDTO>>(response));
-                }
+                var users = await _userRepository.FindAsync(search);
+                var response = _mapper.Map<IEnumerable<UserDTO>>(users);
+                return ServiceResult<IEnumerable<UserDTO>>.Ok(response);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "UserService.Find");
-                return ServiceResult<IEnumerable<UserDTO>>.Error(Errors.ErrorsKey.InternalErrorCode, ex.Message);
+                return ServiceResult<IEnumerable<UserDTO>>.Error(ErrorsKey.InternalErrorCode, ex.Message);
             }
         }
 
@@ -134,17 +119,14 @@ namespace AccountCore.Services.Auth.Services
         {
             try
             {
-                using (var dbcontext = new AuthContext(_configuration))
-                {
-                    var response = await dbcontext.Users.AsQueryable().Where(t => t.Id == id).FirstOrDefaultAsync();
-
-                    return ServiceResult<UserDTO>.Ok(_mapper.Map<UserDTO>(response));
-                }
+                var user = await _userRepository.GetByIdAsync(id);
+                var response = _mapper.Map<UserDTO>(user);
+                return ServiceResult<UserDTO>.Ok(response);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "UserService.GetById");
-                return ServiceResult<UserDTO>.Error(Errors.ErrorsKey.InternalErrorCode, ex.Message);
+                return ServiceResult<UserDTO>.Error(ErrorsKey.InternalErrorCode, ex.Message);
             }
         }
 
@@ -155,56 +137,62 @@ namespace AccountCore.Services.Auth.Services
             {
                 if (string.IsNullOrEmpty(userId))
                 {
-                    return ServiceResult<UserDTO>.Error(Errors.ErrorsKey.Argument, "User Id");
+                    return ServiceResult<UserDTO>.Error(ErrorsKey.Argument, "User Id");
                 }
 
-                UserDTO response;
-                var errors = await ValidDTO(userDto, userId);
-
-                if (errors.Any())
+                var validationResults = ValidationExtensions.ValidateObject(userDto);
+                if (validationResults.Any())
                 {
-                    return ServiceResult<UserDTO>.Error(errors);
+                    var validationErrors = validationResults.Select(v => new KeyValuePair<string, string>("Validation", v.ErrorMessage ?? "")).ToList();
+                    return ServiceResult<UserDTO>.Error(validationErrors);
                 }
 
-                using (var dbcontext = new AuthContext(_configuration))
+                var businessErrors = await ValidateUserDto(userDto, userId);
+                if (businessErrors.Any())
                 {
-                    var user = await dbcontext.Users.FirstAsync(u => u.Id.Equals(userId) && !u.IsSysAdmin);
+                    return ServiceResult<UserDTO>.Error(businessErrors);
+                }
 
-                    user.FirstName = userDto.FirstName!;
-                    user.LastName = userDto.LastName!;
-                    user.Email = userDto.Email;
+                var user = await _userRepository.GetByIdAsync(userId);
+                if (user == null || user.IsSysAdmin)
+                {
+                    return ServiceResult<UserDTO>.Error(ErrorsKey.UserNotExist, "User not found");
+                }
 
-                    var roles = await dbcontext.Roles.AsQueryable().Where(r => r.IsEnabled && userDto.RoleIds!.Contains(r.Id)).ToListAsync();
+                user.FirstName = userDto.FirstName;
+                user.LastName = userDto.LastName;
+                user.Email = userDto.Email;
 
-                    foreach( var r in user.Roles)
+                var roles = await _roleRepository.GetRolesByIdsAsync(userDto.RoleIds ?? Array.Empty<string>());
+
+                // Disable existing roles
+                var existingRoles = user.Roles ?? Enumerable.Empty<RoleUser>();
+                foreach (var r in existingRoles)
+                {
+                    r.Enable = false;
+                }
+
+                // Add new roles
+                foreach (var newRoleId in userDto.RoleIds ?? Array.Empty<string>())
+                {
+                    var newRole = roles.FirstOrDefault(r => r.Id == newRoleId);
+                    if (newRole == null)
                     {
-                        r.Enable = false;
+                        return ServiceResult<UserDTO>.Error(ErrorsKey.Argument, "Invalid Role");
                     }
 
-                    foreach (var newRoleId in userDto.RoleIds!)
-                    {
-                        var newRole = roles.FirstOrDefault(r => r.Id == newRoleId);
-                        if (newRole == null)
-                        {
-                            return ServiceResult<UserDTO>.Error(Errors.ErrorsKey.Argument, "Invalid Role");
-                        }
-
-                        user.AddRole(newRole);
-                    }
-
-                    dbcontext.Users.Update(user);
-
-                    await dbcontext.SaveChangesAsync();
-
-                    response = _mapper.Map<UserDTO>(user);
+                    user.AddRole(newRole);
                 }
+
+                var updatedUser = await _userRepository.UpdateAsync(user);
+                var response = _mapper.Map<UserDTO>(updatedUser);
 
                 return ServiceResult<UserDTO>.Ok(response);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "UserService.Create");
-                return ServiceResult<UserDTO>.Error(Errors.ErrorsKey.InternalErrorCode, ex.Message);
+                _logger.LogError(ex, "UserService.Update");
+                return ServiceResult<UserDTO>.Error(ErrorsKey.InternalErrorCode, ex.Message);
             }
         }
 
@@ -215,37 +203,30 @@ namespace AccountCore.Services.Auth.Services
             {
                 if (string.IsNullOrEmpty(userId))
                 {
-                    return ServiceResult<bool>.Error(Errors.ErrorsKey.Argument, "UserId");
+                    return ServiceResult<bool>.Error(ErrorsKey.Argument, "UserId");
                 }
 
                 var userLogged = this.GetCurrentUser();
-                using (var dbcontext = new AuthContext(_configuration))
+                var user = await _userRepository.GetByIdAsync(userId);
+
+                if (user == null || user.IsSysAdmin)
                 {
-                    var user = await dbcontext.Users.FirstAsync(u => u.Id.Equals(userId) && !u.IsSysAdmin);
-
-                    // Si es usuario de sistema no se puede eliminar
-                    if (user == null)
-                    {
-                        return ServiceResult<bool>.Error(Errors.ErrorsKey.UserNotExist, "Invalid User");
-                    }
-
-                    // Si es usuario de sistema no se puede eliminar
-                    if (user.Id == userLogged?.Id)
-                    {
-                        return ServiceResult<bool>.Error(Errors.ErrorsKey.Forbbinden);
-                    }
-
-                    dbcontext.Users.Remove(user);
-                    await dbcontext.SaveChangesAsync();
+                    return ServiceResult<bool>.Error(ErrorsKey.UserNotExist, "Invalid User");
                 }
 
+                if (user.Id == userLogged?.Id)
+                {
+                    return ServiceResult<bool>.Error(ErrorsKey.Forbbinden, "Cannot delete your own account");
+                }
+
+                await _userRepository.DeleteAsync(userId);
 
                 return ServiceResult<bool>.Ok(true);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "UserService.Delete");
-                return ServiceResult<bool>.Error(Errors.ErrorsKey.InternalErrorCode, ex.Message);
+                return ServiceResult<bool>.Error(ErrorsKey.InternalErrorCode, ex.Message);
             }
         }
 
@@ -259,7 +240,7 @@ namespace AccountCore.Services.Auth.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "UserService.Enable");
-                return ServiceResult<bool>.Error(Errors.ErrorsKey.InternalErrorCode, ex.Message);
+                return ServiceResult<bool>.Error(ErrorsKey.InternalErrorCode, ex.Message);
             }
         }
 
@@ -273,7 +254,7 @@ namespace AccountCore.Services.Auth.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "UserService.Disable");
-                return ServiceResult<bool>.Error(Errors.ErrorsKey.InternalErrorCode, ex.Message);
+                return ServiceResult<bool>.Error(ErrorsKey.InternalErrorCode, ex.Message);
             }
         }
 
@@ -281,102 +262,54 @@ namespace AccountCore.Services.Auth.Services
         {
             if (string.IsNullOrEmpty(userId))
             {
-                return ServiceResult<bool>.Error(Errors.ErrorsKey.Argument, "UserId");
+                return ServiceResult<bool>.Error(ErrorsKey.Argument, "UserId");
             }
 
             var userLogged = this.GetCurrentUser();
-            using (var dbcontext = new AuthContext(_configuration))
+            var user = await _userRepository.GetByIdAsync(userId);
+
+            if (user == null || user.IsSysAdmin)
             {
-                var user = await dbcontext.Users.FirstAsync(u => u.Id.Equals(userId) && !u.IsSysAdmin);
-
-                // Si es usuario de sistema no se puede eliminar
-                if (user == null)
-                {
-                    return ServiceResult<bool>.Error(Errors.ErrorsKey.UserNotExist, "Invalid User");
-                }
-
-                // Si es usuario de sistema no se puede eliminar
-                if (user.Id == userLogged?.Id)
-                {
-                    return ServiceResult<bool>.Error(Errors.ErrorsKey.Forbbinden);
-                }
-
-                user.IsActive = active;
-
-                dbcontext.Users.Update(user);
-                await dbcontext.SaveChangesAsync();
+                return ServiceResult<bool>.Error(ErrorsKey.UserNotExist, "Invalid User");
             }
+
+            if (user.Id == userLogged?.Id)
+            {
+                return ServiceResult<bool>.Error(ErrorsKey.Forbbinden, "Cannot modify your own account status");
+            }
+
+            user.IsActive = active;
+            await _userRepository.UpdateAsync(user);
 
             return ServiceResult<bool>.Ok(true);
         }
 
-        private async Task<List<KeyValuePair<string, string>>> ValidDTO(UserPostDTO userDto, string? userId = null)
+        private async Task<List<KeyValuePair<string, string>>> ValidateUserDto(UserPostDTO userDto, string? userId = null)
         {
             var errors = new List<KeyValuePair<string, string>>();
 
-            if (userDto == null)
+            if (!userDto.Email.IsValidEmail())
             {
-                errors.Add(new KeyValuePair<string, string>(Errors.ErrorsKey.Argument.ToString(), "userDto"));
-                return errors;
+                errors.Add(new KeyValuePair<string, string>(ErrorsKey.Argument.ToString(), "Invalid email format"));
             }
 
-            if (string.IsNullOrEmpty(userDto.FirstName))
+            if (await _userRepository.EmailExistsAsync(userDto.Email, userId))
             {
-                errors.Add(new KeyValuePair<string, string>(Errors.ErrorsKey.Argument.ToString(), "FirstName"));
+                errors.Add(new KeyValuePair<string, string>(ErrorsKey.EmailExists.ToString(), "Email already exists"));
             }
 
-            if (string.IsNullOrEmpty(userDto.LastName))
+            var validRoles = await _roleRepository.GetEnabledRolesAsync();
+            var validRoleIds = validRoles.Select(r => r.Id).ToHashSet();
+            
+            foreach (var roleId in userDto.RoleIds ?? Array.Empty<string>())
             {
-                errors.Add(new KeyValuePair<string, string>(Errors.ErrorsKey.Argument.ToString(), "LastName"));
-            }
-
-            if (string.IsNullOrEmpty(userDto.Email))
-            {
-                errors.Add(new KeyValuePair<string, string>(Errors.ErrorsKey.Argument.ToString(), "Email"));
-            }
-
-            if (!IsValidEmail(userDto.Email))
-            {
-                errors.Add(new KeyValuePair<string, string>(Errors.ErrorsKey.Argument.ToString(), "Email"));
-            }
-
-            if (userDto.RoleIds == null || !userDto.RoleIds.Any())
-            {
-                errors.Add(new KeyValuePair<string, string>(Errors.ErrorsKey.Argument.ToString(), "Role"));
-            }
-
-            using (var dbcontext = new AuthContext(_configuration))
-            {
-                var user = await dbcontext.Users.AsQueryable().Where(user => user.Email.Equals(userDto.Email)).FirstOrDefaultAsync();
-
-                if (user != null)
+                if (!validRoleIds.Contains(roleId))
                 {
-                    if (user.Id != userId)
-                    {
-                        errors.Add(new KeyValuePair<string, string>(Errors.ErrorsKey.EmailExists.ToString(), "Email"));
-                    }
+                    errors.Add(new KeyValuePair<string, string>(ErrorsKey.InvalidRol.ToString(), $"Invalid role: {roleId}"));
                 }
             }
+
             return errors;
-        }
-
-        static bool IsValidEmail(string email)
-        {
-            var trimmedEmail = email.Trim();
-
-            if (trimmedEmail.EndsWith("."))
-            {
-                return false;
-            }
-            try
-            {
-                var addr = new System.Net.Mail.MailAddress(email);
-                return addr.Address == trimmedEmail;
-            }
-            catch
-            {
-                return false;
-            }
         }
     }
 }

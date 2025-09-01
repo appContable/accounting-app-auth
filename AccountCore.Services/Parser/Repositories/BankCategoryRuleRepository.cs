@@ -1,11 +1,6 @@
-using MongoDB.Bson;
 using MongoDB.Driver;
 using AccountCore.DAL.Parser.Models;
 using AccountCore.Services.Parser.Interfaces;
-using System;
-using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace AccountCore.Services.Parser.Repositories
 {
@@ -69,7 +64,7 @@ namespace AccountCore.Services.Parser.Repositories
         {
             var b = (bank ?? string.Empty).Trim();
             var p = (pattern ?? string.Empty).Trim();
-            return _col.Find(x => x.Bank == b && x.Pattern == p).FirstOrDefaultAsync(ct);
+            return _col.Find(x => x.Bank == b && x.Pattern == p).FirstOrDefaultAsync(ct)!;
         }
 
         public Task InsertAsync(BankCategoryRule rule, CancellationToken ct = default)

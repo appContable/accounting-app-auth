@@ -1,7 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Security.Claims;
-
+﻿
 namespace AccountCore.DAL.Auth.Models
 {
     public partial class Role
