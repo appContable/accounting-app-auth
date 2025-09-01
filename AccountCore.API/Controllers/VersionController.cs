@@ -6,7 +6,7 @@ using System.Reflection;
 namespace AccountCore.API.Controllers
 {
     /// <summary>
-    /// Información de versión de la API
+    /// API Version information endpoint
     /// </summary>
     [ApiController]
     [Route("api/[controller]")]
@@ -21,31 +21,50 @@ namespace AccountCore.API.Controllers
         }
 
         /// <summary>
-        /// Obtiene información detallada de la versión
+        /// Gets detailed API version information
         /// </summary>
         [HttpGet]
-        [SwaggerOperation(Summary = "Información de versión de la API")]
-        [SwaggerResponse(StatusCodes.Status200OK, "Información de versión")]
+        [SwaggerOperation(Summary = "Get API version information")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Version information")]
         public IActionResult GetVersion()
         {
             var assembly = Assembly.GetExecutingAssembly();
             var assemblyVersion = assembly.GetName().Version?.ToString() ?? "Unknown";
             var configVersion = _configuration["Api:Version"] ?? "1.0.0";
+            var buildDate = GetBuildDate(assembly);
             var buildNumber = configVersion.Split('.').LastOrDefault() ?? "0";
 
             return Ok(new
             {
-                ApiVersion = configVersion,
-                AssemblyVersion = assemblyVersion,
-                BuildNumber = buildNumber,
-                BuildDate = GetBuildDate(assembly),
-                Environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Unknown",
-                Framework = Environment.Version.ToString(),
-                MachineName = Environment.MachineName,
-                Timestamp = DateTime.UtcNow
+                version = configVersion,
+                buildDate = buildDate.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                buildNumber = buildNumber,
+                assemblyVersion = assemblyVersion,
+                environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Unknown",
+                framework = Environment.Version.ToString(),
+                machineName = Environment.MachineName,
+                timestamp = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
             });
         }
 
+        /// <summary>
+        /// Gets simplified version information (minimal response)
+        /// </summary>
+        [HttpGet("simple")]
+        [SwaggerOperation(Summary = "Get simple version information")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Simple version information")]
+        public IActionResult GetSimpleVersion()
+        {
+            var configVersion = _configuration["Api:Version"] ?? "1.0.0";
+            var assembly = Assembly.GetExecutingAssembly();
+            var buildDate = GetBuildDate(assembly);
+
+            return Ok(new
+            {
+                version = configVersion,
+                buildDate = buildDate.ToString("yyyy-MM-ddTHH:mm:ssZ")
+            });
+        }
         private static DateTime GetBuildDate(Assembly assembly)
         {
             try
