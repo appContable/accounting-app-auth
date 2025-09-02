@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyVersion>$(Version)</AssemblyVersion>
+    <FileVersion>$(Version)</FileVersion>
+    <InformationalVersion>$(Version)</InformationalVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AutoMapper" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Versioning" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Versioning.ApiExplorer" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" />
+    <PackageReference Include="Microsoft.Extensions.Logging" />
+    <PackageReference Include="MongoDB.Driver" />
+    <PackageReference Include="Swashbuckle.AspNetCore" />
+    <PackageReference Include="Swashbuckle.AspNetCore.Annotations" />
+    <PackageReference Include="Swashbuckle.AspNetCore.Newtonsoft" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AccountCore.DTO\Auth\AccountCore.DTO.Auth.csproj" />
+    <ProjectReference Include="..\AccountCore.DTO\Parser\AccountCore.DTO.Parser.csproj" />
+    <ProjectReference Include="..\AccountCore.Services\Auth\AccountCore.Services.Auth.csproj" />
+    <ProjectReference Include="..\AccountCore.Services\Parser\AccountCore.Services.Parser.csproj" />
+    <ProjectReference Include="..\AccountCore.DAL\Auth\AccountCore.DAL.Auth.csproj" />
+    <ProjectReference Include="..\AccountCore.DAL\Parser\AccountCore.DAL.Parser.csproj" />
+  </ItemGroup>
+
+</Project>
