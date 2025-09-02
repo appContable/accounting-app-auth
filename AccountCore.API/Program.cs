@@ -156,18 +156,13 @@ app.UseMiddleware<RateLimitingMiddleware>();
 app.UseSwagger();
 app.UseSwaggerUI();
 
-// Configurar Swagger UI para mostrar endpoints de testing
-if (app.Environment.IsDevelopment() || 
-    app.Configuration.GetValue<bool>("Testing:EnableTestEndpoints"))
+app.UseSwaggerUI(c =>
 {
-    app.UseSwaggerUI(c =>
-    {
-        c.SwaggerEndpoint("/swagger/v1/swagger.json", "AccountCore API v1");
-        c.DisplayRequestDuration();
-        c.EnableTryItOutByDefault();
-        c.DocExpansion(Swashbuckle.AspNetCore.SwaggerUI.DocExpansion.List);
-    });
-}
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "AccountCore API v1");
+    c.DisplayRequestDuration();
+    c.EnableTryItOutByDefault();
+    c.DocExpansion(Swashbuckle.AspNetCore.SwaggerUI.DocExpansion.List);
+});
 
 var httpsPort = builder.Configuration.GetValue<int?>("HttpsPort");
 if (httpsPort.HasValue)
