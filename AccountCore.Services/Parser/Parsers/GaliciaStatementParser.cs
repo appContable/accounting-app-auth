@@ -8,13 +8,14 @@ namespace AccountCore.Services.Parser.Parsers
     public class GaliciaStatementParser : IBankStatementParser
     {
         private static readonly bool DIAGNOSTIC = true;
+        private static readonly bool DEBUG_LINES = true;
 
         // Regex patterns
-        private static readonly Regex DateRx = new(@"^(\d{2}/\d{2}/\d{2})", RegexOptions.Compiled);
+        private static readonly Regex DateRx = new(@"(\d{2}/\d{2}/\d{2})", RegexOptions.Compiled);
         private static readonly Regex MoneyRx = new(@"-?\d{1,3}(?:\.\d{3})*,\d{2}", RegexOptions.Compiled);
-        private static readonly Regex MovimientosStartRx = new(@"^\s*Movimientos\s*$", RegexOptions.IgnoreCase | RegexOptions.Multiline);
+        private static readonly Regex MovimientosStartRx = new(@"Movimientos", RegexOptions.IgnoreCase);
         private static readonly Regex TotalRx = new(@"^\s*Total\s*\$", RegexOptions.IgnoreCase | RegexOptions.Multiline);
-        private static readonly Regex SaldosRx = new(@"Saldos(.+?)(?=\n|$)", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        private static readonly Regex SaldosRx = new(@"Saldos(.+?)(?=Disponés|Movimientos|$)", RegexOptions.IgnoreCase | RegexOptions.Singleline);
         private static readonly Regex AccountNumberRx = new(@"N[°º]?\s*(\d{7}-\d)\s*(\d{3}-\d)", RegexOptions.IgnoreCase);
         private static readonly Regex PeriodRx = new(@"(\d{2}/\d{2}/\d{4})\s*(\d{2}/\d{2}/\d{4})", RegexOptions.Compiled);
 
@@ -33,6 +34,16 @@ namespace AccountCore.Services.Parser.Parsers
             if (string.IsNullOrWhiteSpace(text))
                 return result;
 
+            if (DEBUG_LINES)
+            {
+                var debugLines = text.Split('\n');
+                result.Warnings.Add($"[debug] Total lines: {debugLines.Length}");
+                for (int i = 0; i < Math.Min(20, debugLines.Length); i++)
+                {
+                    result.Warnings.Add($"[debug-line-{i}] {debugLines[i]}");
+                }
+            }
+
             progress?.Invoke(new IBankStatementParser.ProgressUpdate("Normalizando texto", 1, 5));
             text = NormalizeText(text);
 
@@ -43,6 +54,17 @@ namespace AccountCore.Services.Parser.Parsers
 
             progress?.Invoke(new IBankStatementParser.ProgressUpdate("Extrayendo movimientos", 3, 5));
             var movementsText = ExtractMovementsSection(text);
+            
+            if (DIAGNOSTIC)
+            {
+                result.Warnings.Add($"[movements-section] Length: {movementsText.Length}");
+                var movLines = movementsText.Split('\n');
+                result.Warnings.Add($"[movements-section] Lines: {movLines.Length}");
+                for (int i = 0; i < Math.Min(10, movLines.Length); i++)
+                {
+                    result.Warnings.Add($"[mov-line-{i}] '{movLines[i]}'");
+                }
+            }
             
             progress?.Invoke(new IBankStatementParser.ProgressUpdate("Parseando transacciones", 4, 5));
             var transactions = ParseTransactions(movementsText, result);
@@ -133,7 +155,16 @@ namespace AccountCore.Services.Parser.Parsers
         private static string ExtractMovementsSection(string text)
         {
             var startMatch = MovimientosStartRx.Match(text);
-            if (!startMatch.Success) return text;
+            if (!startMatch.Success) 
+            {
+                // Si no encuentra "Movimientos", buscar después de "Saldo"
+                var afterSaldos = text.IndexOf("Saldo", StringComparison.OrdinalIgnoreCase);
+                if (afterSaldos > 0)
+                {
+                    return text.Substring(afterSaldos);
+                }
+                return text;
+            }
 
             var startIndex = startMatch.Index + startMatch.Length;
             
@@ -148,9 +179,19 @@ namespace AccountCore.Services.Parser.Parsers
             var transactions = new List<Transaction>();
             var lines = movementsText.Split('\n', StringSplitOptions.RemoveEmptyEntries);
             
+            if (DIAGNOSTIC)
+            {
+                result.Warnings.Add($"[parse-transactions] Processing {lines.Length} lines");
+            }
+            
             var i = 0;
             while (i < lines.Length)
             {
+                if (DIAGNOSTIC && i < 5)
+                {
+                    result.Warnings.Add($"[processing-line-{i}] '{lines[i]}'");
+                }
+                
                 var transactionLines = CollectTransactionLines(lines, ref i);
                 if (transactionLines.Count > 0)
                 {
@@ -176,6 +217,10 @@ namespace AccountCore.Services.Parser.Parsers
             var firstLine = lines[index].Trim();
             if (!DateRx.IsMatch(firstLine))
             {
+                if (DIAGNOSTIC)
+                {
+                    result.Warnings.Add($"[skip-no-date] Line {index}: '{firstLine}'");
+                }
                 index++;
                 return transactionLines;
             }
@@ -211,27 +256,36 @@ namespace AccountCore.Services.Parser.Parsers
             // Unir todas las líneas en un solo texto
             var fullText = string.Join(" ", lines);
             
+            if (DIAGNOSTIC)
+            {
+                result.Warnings.Add($"[processing-block] '{fullText}'");
+            }
+            
             // Extraer fecha de la primera línea
             var dateMatch = DateRx.Match(lines[0]);
-            if (!dateMatch.Success) return null;
+            if (!dateMatch.Success) 
+            {
+                if (DIAGNOSTIC)
+                    result.Warnings.Add($"[skip-no-date-match] '{lines[0]}'");
+                return null;
+            }
 
             if (!DateTime.TryParseExact(dateMatch.Groups[1].Value, "dd/MM/yy", null, DateTimeStyles.None, out var date))
+            {
+                if (DIAGNOSTIC)
+                    result.Warnings.Add($"[skip-date-parse-fail] '{dateMatch.Groups[1].Value}'");
                 return null;
+            }
 
             // Convertir año de 2 dígitos a 4 dígitos (asumiendo 20xx)
             if (date.Year < 2000) date = date.AddYears(2000);
-
-            if (DIAGNOSTIC)
-            {
-                result.Warnings.Add($"[block] {date:dd/MM/yy} - processing: {fullText}");
-            }
 
             // Extraer todos los montos del texto completo
             var moneyMatches = MoneyRx.Matches(fullText);
             if (moneyMatches.Count < 2)
             {
                 if (DIAGNOSTIC)
-                    result.Warnings.Add($"[skip] {date:dd/MM/yy} - expected 2 amounts, found {moneyMatches.Count}");
+                    result.Warnings.Add($"[skip-money-count] {date:dd/MM/yy} - expected 2 amounts, found {moneyMatches.Count} in: {fullText}");
                 return null;
             }
 
