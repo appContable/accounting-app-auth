@@ -29,12 +29,12 @@ namespace AccountCore.API.Controllers
         }
 
         /// <summary>
-        /// Extrae el texto raw del PDF sin transformaciones (solo para testing)
+        /// Parsea PDF - si se especifica 'bank' usa el parser, sino devuelve texto raw
         /// </summary>
         [HttpPost("parse-pdf")]
         [Consumes("multipart/form-data")]
-        [SwaggerOperation(Summary = "Extrae texto raw del PDF sin transformaciones (testing only)")]
-        [SwaggerResponse(StatusCodes.Status200OK, "Texto raw extraído del PDF")]
+        [SwaggerOperation(Summary = "Parsea PDF con parser específico o devuelve texto raw (testing only)")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Resultado del parseo o texto raw del PDF")]
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Solicitud inválida")]
         public async Task<IActionResult> ParsePdf([FromForm] UploadPdfRequest req, CancellationToken ct)
         {
@@ -44,27 +44,46 @@ namespace AccountCore.API.Controllers
             try
             {
                 using var stream = req.File.OpenReadStream();
-                using var ms = new MemoryStream();
-                await stream.CopyToAsync(ms, ct);
-                ms.Position = 0;
-
-                ct.ThrowIfCancellationRequested();
                 
-                string rawText;
-                using (var doc = PdfDocument.Open(ms))
+                // Si se especifica bank, usar el parser correspondiente
+                if (!string.IsNullOrWhiteSpace(req.Bank))
                 {
-                    rawText = ExtractRawTextFromPdf(doc, ct);
-                }
+                    var testUserId = "test-user-" + Guid.NewGuid().ToString("N")[..8];
+                    
+                    var result = await _parserService.ParseAsync(stream, req.Bank, testUserId, ct);
+                    if (result == null) 
+                        return BadRequest("No se pudo procesar el PDF con el parser especificado.");
 
-                return Ok(new
+                    // Aplicar categorización con reglas de banco
+                    await _categorizationService.ApplyAsync(result, req.Bank, testUserId, ct);
+
+                    return Ok(result);
+                }
+                else
                 {
-                    FileName = req.File.FileName,
-                    FileSize = req.File.Length,
-                    RawText = rawText,
-                    CharacterCount = rawText.Length,
-                    LineCount = rawText.Split('\n').Length,
-                    ExtractedAt = DateTime.UtcNow
-                });
+                    // Si no se especifica bank, devolver texto raw
+                    using var ms = new MemoryStream();
+                    await stream.CopyToAsync(ms, ct);
+                    ms.Position = 0;
+
+                    ct.ThrowIfCancellationRequested();
+                    
+                    string rawText;
+                    using (var doc = PdfDocument.Open(ms))
+                    {
+                        rawText = ExtractRawTextFromPdf(doc, ct);
+                    }
+
+                    return Ok(new
+                    {
+                        FileName = req.File.FileName,
+                        FileSize = req.File.Length,
+                        RawText = rawText,
+                        CharacterCount = rawText.Length,
+                        LineCount = rawText.Split('\n').Length,
+                        ExtractedAt = DateTime.UtcNow
+                    });
+                }
             }
             catch (Exception ex)
             {
