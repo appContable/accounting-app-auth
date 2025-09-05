@@ -9,34 +9,14 @@ namespace AccountCore.Services.Parser.Parsers
     {
         private static readonly bool DIAGNOSTIC = true;
 
-        // Regex patterns mejorados
+        // Regex patterns
         private static readonly Regex DateRx = new(@"^(\d{2}/\d{2}/\d{2})", RegexOptions.Compiled);
         private static readonly Regex MoneyRx = new(@"-?\d{1,3}(?:\.\d{3})*,\d{2}", RegexOptions.Compiled);
         private static readonly Regex MovimientosStartRx = new(@"^\s*Movimientos\s*$", RegexOptions.IgnoreCase | RegexOptions.Multiline);
         private static readonly Regex TotalRx = new(@"^\s*Total\s*\$", RegexOptions.IgnoreCase | RegexOptions.Multiline);
-        private static readonly Regex SaldosRx = new(@"Saldos\s*(.+?)(?=\n|$)", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        private static readonly Regex SaldosRx = new(@"Saldos(.+?)(?=\n|$)", RegexOptions.IgnoreCase | RegexOptions.Singleline);
         private static readonly Regex AccountNumberRx = new(@"N[°º]?\s*(\d{7}-\d)\s*(\d{3}-\d)", RegexOptions.IgnoreCase);
         private static readonly Regex PeriodRx = new(@"(\d{2}/\d{2}/\d{4})\s*(\d{2}/\d{2}/\d{4})", RegexOptions.Compiled);
-
-        // Canonicalization patterns específicos para Galicia
-        private static readonly (Regex rx, string canon)[] CanonMap = new[]
-        {
-            (new Regex(@"\bTRANSFERENCIA\s+DE\s+CUENTA\s*PROPIA\b", RegexOptions.IgnoreCase), "TRANSFERENCIA ENTRE CUENTAS PROPIAS"),
-            (new Regex(@"\bSERVICIO\s+ACREDITAMIENTO\s+DE\s*HABERES\b", RegexOptions.IgnoreCase), "ACREDITACION HABERES"),
-            (new Regex(@"\bIMP\.\s*DEB\.\s*LEY\s*25413\s*GRAL\.\b", RegexOptions.IgnoreCase), "IMPUESTO DEBITOS LEY 25413"),
-            (new Regex(@"\bCOMISION\s+SERVICIO\s+DE\s+CUENTA\b", RegexOptions.IgnoreCase), "COMISION MANTENIMIENTO CUENTA"),
-            (new Regex(@"\bPERCEP\.\s*IVA\b", RegexOptions.IgnoreCase), "PERCEPCION IVA"),
-            (new Regex(@"\bINTERESES\s+SOBRE\s+SALDOS\s*DEUDORES\b", RegexOptions.IgnoreCase), "INTERESES SOBREGIRO"),
-            (new Regex(@"\bIMPUESTO\s+DE\s+SELLOS\b", RegexOptions.IgnoreCase), "IMPUESTO SELLOS"),
-            (new Regex(@"\bPAGO\s+VISA\s+EMPRESA\b", RegexOptions.IgnoreCase), "PAGO TARJETA VISA"),
-            (new Regex(@"\bTRANSFERENCIAS\s+CASH\s*PROVEEDORES\b", RegexOptions.IgnoreCase), "TRANSFERENCIA PROVEEDORES"),
-            (new Regex(@"\bING\.\s*BRUTOS\s+S/\s*CRED\b", RegexOptions.IgnoreCase), "INGRESOS BRUTOS CREDITO"),
-            (new Regex(@"\bIMP\.\s*CRE\.\s*LEY\s*25413\b", RegexOptions.IgnoreCase), "IMPUESTO CREDITOS LEY 25413"),
-            (new Regex(@"\bDEB\.\s*AUTOM\.\s*DE\s*SERV\.\b", RegexOptions.IgnoreCase), "DEBITO AUTOMATICO"),
-            (new Regex(@"\bSUSCRIPCION\s+FIMA\b", RegexOptions.IgnoreCase), "SUSCRIPCION FONDO"),
-            (new Regex(@"\bRESCATE\s+FIMA\b", RegexOptions.IgnoreCase), "RESCATE FONDO"),
-            (new Regex(@"\bTRF\s+INMED\s+PROVEED\b", RegexOptions.IgnoreCase), "TRANSFERENCIA INMEDIATA PROVEEDOR"),
-        };
 
         public ParseResult Parse(string text, Action<IBankStatementParser.ProgressUpdate>? progress = null)
         {
@@ -50,21 +30,23 @@ namespace AccountCore.Services.Parser.Parsers
                 Warnings = new List<string>()
             };
 
-            progress?.Invoke(new IBankStatementParser.ProgressUpdate("Normalizando texto", 1, 6));
+            if (string.IsNullOrWhiteSpace(text))
+                return result;
+
+            progress?.Invoke(new IBankStatementParser.ProgressUpdate("Normalizando texto", 1, 5));
             text = NormalizeText(text);
 
-            progress?.Invoke(new IBankStatementParser.ProgressUpdate("Extrayendo información básica", 2, 6));
+            progress?.Invoke(new IBankStatementParser.ProgressUpdate("Extrayendo información básica", 2, 5));
             var accountNumber = ExtractAccountNumber(text);
             var (periodStart, periodEnd) = ExtractPeriod(text);
             var (openingBalance, closingBalance) = ExtractBalances(text);
 
-            progress?.Invoke(new IBankStatementParser.ProgressUpdate("Extrayendo movimientos", 3, 6));
+            progress?.Invoke(new IBankStatementParser.ProgressUpdate("Extrayendo movimientos", 3, 5));
             var movementsText = ExtractMovementsSection(text);
             
-            progress?.Invoke(new IBankStatementParser.ProgressUpdate("Parseando transacciones", 4, 6));
+            progress?.Invoke(new IBankStatementParser.ProgressUpdate("Parseando transacciones", 4, 5));
             var transactions = ParseTransactions(movementsText, result);
 
-            progress?.Invoke(new IBankStatementParser.ProgressUpdate("Validando consistencia", 5, 6));
             var account = new AccountStatement 
             { 
                 AccountNumber = accountNumber ?? "Cuenta no detectada",
@@ -74,12 +56,11 @@ namespace AccountCore.Services.Parser.Parsers
                 Currency = "ARS"
             };
             
-            ValidateAndReconcile(account, result);
             result.Statement.Accounts.Add(account);
-
-            progress?.Invoke(new IBankStatementParser.ProgressUpdate("Finalizando", 6, 6));
             result.Statement.PeriodStart = periodStart;
             result.Statement.PeriodEnd = periodEnd;
+
+            progress?.Invoke(new IBankStatementParser.ProgressUpdate("Finalizando", 5, 5));
 
             if (DIAGNOSTIC)
             {
@@ -109,14 +90,6 @@ namespace AccountCore.Services.Parser.Parsers
             {
                 return $"{match.Groups[1].Value} {match.Groups[2].Value}";
             }
-
-            // Fallback: buscar patrón en el texto
-            var simpleMatch = Regex.Match(text, @"N[°º]?\s*(\d{7}-\d)\s*(\d{3}-\d)");
-            if (simpleMatch.Success)
-            {
-                return $"{simpleMatch.Groups[1].Value} {simpleMatch.Groups[2].Value}";
-            }
-
             return null;
         }
 
@@ -134,7 +107,7 @@ namespace AccountCore.Services.Parser.Parsers
             return (null, null);
         }
 
-        private static (decimal? opening, decimal? closing) ExtractBalances(text)
+        private static (decimal? opening, decimal? closing) ExtractBalances(string text)
         {
             decimal? opening = null;
             decimal? closing = null;
@@ -178,122 +151,102 @@ namespace AccountCore.Services.Parser.Parsers
             var i = 0;
             while (i < lines.Length)
             {
-                var transaction = TryParseTransactionBlock(lines, ref i, result);
-                if (transaction != null)
+                var transactionLines = CollectTransactionLines(lines, ref i);
+                if (transactionLines.Count > 0)
                 {
-                    transactions.Add(transaction);
-                }
-                else
-                {
-                    i++; // Avanzar si no se pudo parsear
+                    var transaction = ParseSingleTransaction(transactionLines, result);
+                    if (transaction != null)
+                    {
+                        transactions.Add(transaction);
+                    }
                 }
             }
 
             return transactions.OrderBy(t => t.Date).ToList();
         }
 
-        private static Transaction? TryParseTransactionBlock(string[] lines, ref int index, ParseResult result)
+        private static List<string> CollectTransactionLines(string[] lines, ref int index)
         {
-            if (index >= lines.Length) return null;
+            var transactionLines = new List<string>();
+            
+            if (index >= lines.Length)
+                return transactionLines;
 
-            var currentLine = lines[index].Trim();
-            if (string.IsNullOrEmpty(currentLine)) return null;
+            // La primera línea debe tener una fecha
+            var firstLine = lines[index].Trim();
+            if (!DateRx.IsMatch(firstLine))
+            {
+                index++;
+                return transactionLines;
+            }
 
-            // Buscar fecha al inicio de la línea
-            var dateMatch = DateRx.Match(currentLine);
+            transactionLines.Add(firstLine);
+            index++;
+
+            // Continuar recopilando líneas hasta encontrar otra fecha o llegar al final
+            while (index < lines.Length)
+            {
+                var nextLine = lines[index].Trim();
+                if (string.IsNullOrEmpty(nextLine))
+                {
+                    index++;
+                    continue;
+                }
+
+                // Si encontramos otra fecha, paramos (no incrementamos index)
+                if (DateRx.IsMatch(nextLine))
+                    break;
+
+                transactionLines.Add(nextLine);
+                index++;
+            }
+
+            return transactionLines;
+        }
+
+        private static Transaction? ParseSingleTransaction(List<string> lines, ParseResult result)
+        {
+            if (lines.Count == 0) return null;
+
+            // Unir todas las líneas en un solo texto
+            var fullText = string.Join(" ", lines);
+            
+            // Extraer fecha de la primera línea
+            var dateMatch = DateRx.Match(lines[0]);
             if (!dateMatch.Success) return null;
 
-            // Parsear fecha
             if (!DateTime.TryParseExact(dateMatch.Groups[1].Value, "dd/MM/yy", null, DateTimeStyles.None, out var date))
                 return null;
 
             // Convertir año de 2 dígitos a 4 dígitos (asumiendo 20xx)
             if (date.Year < 2000) date = date.AddYears(2000);
 
-            // Recopilar todas las líneas que pertenecen a esta transacción
-            var transactionLines = new List<string> { currentLine };
-            var nextIndex = index + 1;
-
-            // Continuar recopilando líneas hasta encontrar otra fecha o llegar al final
-            while (nextIndex < lines.Length)
-            {
-                var nextLine = lines[nextIndex].Trim();
-                if (string.IsNullOrEmpty(nextLine))
-                {
-                    nextIndex++;
-                    continue;
-                }
-
-                // Si encontramos otra fecha, paramos
-                if (DateRx.IsMatch(nextLine)) break;
-
-                transactionLines.Add(nextLine);
-                nextIndex++;
-            }
-
-            // Procesar el bloque completo de la transacción
-            var transaction = ProcessTransactionBlock(transactionLines, date, result);
-            
-            // Actualizar el índice para continuar desde la siguiente transacción
-            index = nextIndex - 1; // -1 porque el bucle principal hará i++
-
-            return transaction;
-        }
-
-        private static Transaction? ProcessTransactionBlock(List<string> lines, DateTime date, ParseResult result)
-        {
-            // Unir todas las líneas en un solo texto
-            var fullText = string.Join(" ", lines);
-            
             if (DIAGNOSTIC)
             {
                 result.Warnings.Add($"[block] {date:dd/MM/yy} - processing: {fullText}");
             }
 
-            // Extraer todos los montos del bloque
+            // Extraer todos los montos del texto completo
             var moneyMatches = MoneyRx.Matches(fullText);
-            if (moneyMatches.Count < 1)
+            if (moneyMatches.Count < 2)
             {
                 if (DIAGNOSTIC)
-                    result.Warnings.Add($"[skip] {date:dd/MM/yy} - no money amounts found");
+                    result.Warnings.Add($"[skip] {date:dd/MM/yy} - expected 2 amounts, found {moneyMatches.Count}");
                 return null;
             }
 
-            // Según tu análisis:
-            // - El último monto es el saldo (puede tener negativo al final)
-            // - Si hay 2 montos: [débito/crédito, saldo]
-            // - Si hay 3 montos: [crédito, débito, saldo]
+            // Según tu análisis: cada línea tiene exactamente 2 montos
+            // [débito/crédito, saldo]
+            var amountText = moneyMatches[0].Value;
+            var balanceText = moneyMatches[1].Value;
 
-            decimal amount = 0;
-            decimal balance;
-            string balanceText = moneyMatches[^1].Value; // Último monto = saldo
+            var amount = ParseMoney(amountText);
+            var balance = ParseMoney(balanceText);
 
-            // Parsear saldo (puede tener negativo al final)
-            balance = ParseMoney(balanceText);
-
-            if (moneyMatches.Count == 1)
-            {
-                // Solo saldo, no hay monto de transacción explícito
-                if (DIAGNOSTIC)
-                    result.Warnings.Add($"[skip] {date:dd/MM/yy} - only balance found, no transaction amount");
-                return null;
-            }
-            else if (moneyMatches.Count == 2)
-            {
-                // [monto, saldo]
-                amount = ParseMoney(moneyMatches[0].Value);
-            }
-            else if (moneyMatches.Count >= 3)
-            {
-                // [crédito, débito, saldo] o múltiples montos
-                // Tomar el penúltimo como monto de transacción
-                amount = ParseMoney(moneyMatches[^2].Value);
-            }
-
-            // Extraer descripción (todo lo que está entre la fecha y los montos)
-            var dateText = DateRx.Match(fullText).Value;
+            // Extraer descripción (todo lo que está entre la fecha y el primer monto)
+            var dateText = dateMatch.Value;
             var dateEndIndex = fullText.IndexOf(dateText) + dateText.Length;
-            var firstMoneyIndex = fullText.IndexOf(moneyMatches[0].Value);
+            var firstMoneyIndex = fullText.IndexOf(amountText);
             
             var description = fullText.Substring(dateEndIndex, firstMoneyIndex - dateEndIndex).Trim();
             description = CleanDescription(description);
@@ -324,12 +277,6 @@ namespace AccountCore.Services.Parser.Parsers
             // Normalizar espacios
             description = Regex.Replace(description, @"\s+", " ").Trim();
 
-            // Aplicar canonicalizaciones
-            foreach (var (rx, canon) in CanonMap)
-            {
-                description = rx.Replace(description, canon);
-            }
-
             // Limpiar códigos y referencias al final
             description = Regex.Replace(description, @"\s*\d{10,}\s*$", ""); // Códigos largos
             description = Regex.Replace(description, @"\s*[A-Z0-9]{10,}\s*$", ""); // Referencias alfanuméricas
@@ -357,53 +304,6 @@ namespace AccountCore.Services.Parser.Parsers
             }
 
             throw new FormatException($"No se pudo parsear el monto: {moneyText}");
-        }
-
-        private static void ValidateAndReconcile(AccountStatement account, ParseResult result)
-        {
-            var transactions = account.Transactions;
-            if (transactions == null || transactions.Count == 0) return;
-
-            // Verificar consistencia de balances
-            for (int i = 0; i < transactions.Count; i++)
-            {
-                decimal expectedAmount;
-
-                if (i == 0 && account.OpeningBalance.HasValue)
-                {
-                    expectedAmount = transactions[i].Balance - account.OpeningBalance.Value;
-                }
-                else if (i > 0)
-                {
-                    expectedAmount = transactions[i].Balance - transactions[i - 1].Balance;
-                }
-                else continue;
-
-                // Corregir montos si hay discrepancias significativas
-                if (Math.Abs(expectedAmount - transactions[i].Amount) > 0.01m)
-                {
-                    var oldAmount = transactions[i].Amount;
-                    transactions[i].Amount = expectedAmount;
-                    transactions[i].Type = expectedAmount < 0 ? "debit" : "credit";
-                    
-                    if (DIAGNOSTIC)
-                    {
-                        result.Warnings.Add($"[amount-fix] {transactions[i].Date:dd/MM/yy} '{transactions[i].Description}' {oldAmount:N2} → {expectedAmount:N2}");
-                    }
-                }
-            }
-
-            // Validar balance final
-            if (account.OpeningBalance.HasValue && account.ClosingBalance.HasValue && transactions.Count > 0)
-            {
-                var calculatedBalance = account.OpeningBalance.Value + transactions.Sum(t => t.Amount);
-                var difference = Math.Abs(calculatedBalance - account.ClosingBalance.Value);
-                
-                if (difference > 0.02m)
-                {
-                    result.Warnings.Add($"[balance-mismatch] Diferencia: {difference:N2} (calculado: {calculatedBalance:N2}, esperado: {account.ClosingBalance.Value:N2})");
-                }
-            }
         }
     }
 }
