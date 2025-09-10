@@ -147,8 +147,6 @@ builder.Services.AddCors(p => p.AddPolicy("corsapp", policy =>
 var mapperConfig = new MapperConfiguration(cfg => cfg.AddProfile(new MappingProfile()));
 builder.Services.AddSingleton(mapperConfig.CreateMapper());
 
-builder.Services.Configure<ParserSettings>(builder.Configuration.GetSection("Parser"));
-
 var app = builder.Build();
 
 // Middleware
