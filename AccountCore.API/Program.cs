@@ -151,8 +151,6 @@ builder.Services.Configure<ParserSettings>(builder.Configuration.GetSection("Par
 
 var app = builder.Build();
 
-app.MapGet("/debug/parser-config", (IOptions<ParserSettings> opts) => Results.Json(opts.Value));
-
 // Middleware
 app.UseCors("corsapp");
 
