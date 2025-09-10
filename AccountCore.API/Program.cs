@@ -25,6 +25,8 @@ using AccountCore.Services.Auth.Interfaces;
 using AccountCore.Services.Auth.Repositories;
 using AccountCore.DTO.Auth.Configuration;
 using AccountCore.API.Middleware;
+using Microsoft.Extensions.Options;
+
 
 //
 // ---- Fix GUID legacy para UserCategoryRule (Mongo driver) ----
@@ -155,14 +157,6 @@ app.UseMiddleware<RateLimitingMiddleware>();
 
 app.UseSwagger();
 app.UseSwaggerUI();
-
-app.UseSwaggerUI(c =>
-{
-    c.SwaggerEndpoint("/swagger/v1/swagger.json", "AccountCore API v1");
-    c.DisplayRequestDuration();
-    c.EnableTryItOutByDefault();
-    c.DocExpansion(Swashbuckle.AspNetCore.SwaggerUI.DocExpansion.List);
-});
 
 var httpsPort = builder.Configuration.GetValue<int?>("HttpsPort");
 if (httpsPort.HasValue)

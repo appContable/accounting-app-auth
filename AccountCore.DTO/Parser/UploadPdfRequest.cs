@@ -6,9 +6,8 @@ namespace AccountCore.DTO.Parser
 {
     public class UploadPdfRequest
     {
-        [Required]
         [FromForm(Name = "bank")]
-        public string Bank { get; set; } = string.Empty;
+        public string? Bank { get; set; }
 
         [Required]
         [FromForm(Name = "file")]

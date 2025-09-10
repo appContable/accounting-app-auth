@@ -1,414 +1,1190 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
+using System.Text.Json;
 using AccountCore.DAL.Parser.Models;
 using AccountCore.Services.Parser.Interfaces;
+using Microsoft.AspNetCore.Http;
 
 namespace AccountCore.Services.Parser.Parsers
 {
+    /// <summary>
+    /// Transacción = bloque desde una línea que COMIENZA con fecha dd/MM/yy (ML) hasta ANTES de la próxima línea que comience con fecha.
+    /// Reglas duras en el bloque:
+    /// - EXACTAMENTE 2 montos válidos:
+    ///     * Importe: formateo estricto (miles '.' y decimales ','), débito con '-' prefijo.
+    ///     * Saldo:   formateo estricto, negativo con '-' sufijo.
+    /// - Todo lo demás es descripción TAL CUAL.
+    /// Meta:
+    /// - PeriodStart/PeriodEnd desde fechas en portada (si hay 2).
+    /// - Opening/Closing desde portada con ancla '$': closing = $…- ; opening = $… (positivo) en la sección “Saldos”
+    ///   o en su defecto el mayor $ positivo de la portada.
+    /// </summary>
     public class GaliciaStatementParser : IBankStatementParser
     {
-        private static readonly bool DIAGNOSTIC = true;
+        // ===== Patrones estrictos =====
+        // Fecha dd/MM/yy al inicio de línea (multilínea, tolera espacios alrededor de '/')
+        // Fecha dd/MM/yy al inicio de línea (tolera espacios dentro de cada par de dígitos)
+        private static readonly Regex RxDateLineAnchor =
+            new(@"(?m)^\s*(?<d>\d(?:\s?\d)\s*/\s*\d(?:\s?\d)\s*/\s*\d(?:\s?\d))\b", RegexOptions.Compiled);
 
-        private static readonly bool DIAG_RAW_FULL = true;
-        private const int RAW_CHUNK_SIZE = 900;
-        private const int RAW_MAX_CHUNKS = 24;
+        // Núcleo de monto: 1 a 3 grupos de miles + ",dd"
+        private const string MoneyCore = @"\d{1,3}(?:\.\d{3}){0,6},\d{2}";
 
-        private static bool PatternHasAdvancedConstructs(string pattern)
-            => pattern.IndexOf("(?", StringComparison.Ordinal) >= 0;
+        private static readonly Regex RxMoneyStrict = new($@"^(?:{MoneyCore})$", RegexOptions.Compiled);
 
-        private static Regex Rx(string pattern, RegexOptions extra = 0)
+        // Acepta: 1.234,56  | -1.234,56  | 1.234,56-
+        // y permite espacios entre los dos decimales: ",5 6"
+        private static readonly Regex RxStrictAmount = new(
+            @"(?:(?<pref>-)\s*)?(?<m>\d{1,3}(?:\.\d{3})*,\s*\d\s*\d)(?<suff>\s*-)?",
+            RegexOptions.Compiled);
+
+        // ===== Regex para parsear montos y saldo (robusto con OCR) =====
+        // Toma "-" como signo SOLO si está al inicio de línea o precedido por espacio.
+        // Permite "-" de saldo NEGATIVO pegado al final (e.g. "83.350,58-").
+        private static readonly Regex RxMoneyForParsing = new(
+            @"\$?\s*(?<sign>(?:(?<=^)|(?<=\s))-)?(?<num>\d{1,3}(?:\.\d{3}){0,6},\d{2})(?<saldoNeg>-)?",
+            RegexOptions.Compiled);
+
+        // Parser de "1.234.567,89" -> 1234567.89 (invariant)
+        private static decimal ParseEsDecimal(string num)
         {
-            var opts = RegexOptions.Compiled | RegexOptions.CultureInvariant | extra;
-            var timeout = TimeSpan.FromSeconds(2);
-#if NET7_0_OR_GREATER
-            if (!PatternHasAdvancedConstructs(pattern))
-            {
-                try { return new Regex(pattern, opts | RegexOptions.NonBacktracking, timeout); }
-                catch (NotSupportedException) { }
-            }
-#endif
-            return new Regex(pattern, opts, timeout);
+            var clean = num.Replace(".", "").Replace(",", ".");
+            return decimal.Parse(clean, System.Globalization.CultureInfo.InvariantCulture);
         }
 
-        private static readonly Regex MoneyRx = Rx(@"-?\d{1,3}(?:[.\s]?\d{3})*,\s*\d{2}|-?\d+,\s*\d{2}");
-        private static readonly Regex DateAtStartRx = Rx(@"^\s*(\d{2}/\d{2}/(?:\d{4}|\d{2}))(?!\d)", RegexOptions.Multiline);
-        private static readonly Regex InlineDateSplitRx = Rx(@"(?<!^)(?=\d{2}/\d{2}/(?:\d{4}|\d{2}))");
-        private static readonly Regex DateAnchorRx = Rx(@"(?m)^\s*\d{2}/\d{2}/(?:\d{2}|\d{4})(?!\d)");
-        private static readonly Regex HeaderRx = Rx(@"^(?:P[aá]gina\b|Movimientos\b|Fecha\s+Descripci[oó]n\s+Origen\s+Cr[ée]dito\s+D[ée]bito\s+Saldo\b|Resumen\b|Saldos?\b|Total\b|Canales\b|Chate[aá]\b|BCRA\b)", RegexOptions.IgnoreCase);
-        private static readonly Regex MonthLineRx = Rx(@"^\s*(?:Enero|Febrero|Marzo|Abril|Mayo|Junio|Julio|Agosto|Septiembre|Octubre|Noviembre|Diciembre)\s+\d{4}\s*$", RegexOptions.IgnoreCase);
-
-        private static readonly (Regex rx, string canon)[] CanonMap = new[]
+        // Normalización mínima de glitches OCR (ANTES de parsear montos)
+        private static string NormalizeOcrGlitches(string t)
         {
-            (Rx(@"\bPAGO\s+TARJETAMASTER\b", RegexOptions.IgnoreCase), "PAGO TARJETA MASTER"),
-            (Rx(@"\bPAGO\s+TARJETAVISA\b",   RegexOptions.IgnoreCase), "PAGO TARJETA VISA"),
-            (Rx(@"\bCOMPRA\s+DEBITO\b",      RegexOptions.IgnoreCase), "COMPRA DEBITO"),
-            (Rx(@"\bTRANSF\.?\s*CTAS\s*PROPIAS\b", RegexOptions.IgnoreCase), "TRANSFERENCIA ENTRE CUENTAS PROPIAS"),
-            (Rx(@"\bTRANSFERENCIA\s+DE\s+TERCEROS\b", RegexOptions.IgnoreCase), "TRANSFERENCIA DE TERCEROS"),
-            (Rx(@"\bTRANSFERENCIA\s+DE\s+CUENTA\b",  RegexOptions.IgnoreCase), "TRANSFERENCIA DE CUENTA"),
-            (Rx(@"\bD\.A\. ?AL\s*VTO\b",     RegexOptions.IgnoreCase), "D.A. AL VTO"),
-        };
+            if (string.IsNullOrEmpty(t)) return t;
 
-        // Helper: extrae el "final" del pie de tabla (Total ... $ ... $ ... $ <final>)
-        private static decimal? TryExtractFinalFromTotal(string full)
-        {
-            var rx = Rx(@"(?im)Total\s*\$\s*[^\n$]*\$\s*[^\n$]*\$\s*(?<f>-?\d{1,3}(?:[.\s]?\d{3})*,\s*\d{2}|-?\d+,\s*\d{2})");
-            var m = rx.Match(full);
-            if (!m.Success) return null;
-            var d = ParseEsMoney(m.Groups["f"].Value, out var neg);
-            return neg ? -d : d;
+            // "-1 1.996.000,00" -> "-11.996.000,00"
+            t = Regex.Replace(t, @"-(\d)\s+(?=\1(?:\.\d{3}){1,6},\d{2}\b)", "-$1");
+
+            // "24.01 1,36" -> "24.011,36"
+            t = Regex.Replace(t, @"(?<=\.\d{1,3})\s+(?=\d,\d{2}\b)", "");
+
+            // "- 333,41" -> "-333,41"
+            t = Regex.Replace(t, @"-\s+(?=\d)", "-");
+
+            // "99 -" -> "99-"
+            t = Regex.Replace(t, @"(?<=\d)\s+-\b", "-");
+
+            return t;
         }
 
-        // Helper: toma los dos importes del bloque "Saldos" sin asumir orden
-        private static (decimal? v1, decimal? v2) TryExtractTwoFromSaldos(string full)
+        // Devuelve SIEMPRE los DOS ÚLTIMOS montos del bloque:
+        //   - amount: con signo por prefijo (si "sign" existe)
+        //   - balance: negativo si encuentra sufijo "-"
+        // Importante: NO llamarla con el texto ya "limpiado" de descripción.
+        private static (decimal amount, decimal balance)? TryParseAmountAndBalance(string blockText)
         {
-            var rx = Rx(@"(?ims)Saldos?\b.*?(?<v1>-?\d{1,3}(?:[.\s]?\d{3})*,\s*\d{2}|-?\d+,\s*\d{2}).*?(?<v2>-?\d{1,3}(?:[.\s]?\d{3})*,\s*\d{2}|-?\d+,\s*\d{2})");
-            var m = rx.Match(full);
-            if (!m.Success) return (null, null);
+            var norm = NormalizeDashes(NormalizeOcrGlitches(blockText));
+            var ms = RxMoneyForParsing.Matches(norm);
+            if (ms.Count < 2) return null;
 
-            decimal? p1 = ParseEsMoney(m.Groups["v1"].Value, out var n1);
-            decimal? p2 = ParseEsMoney(m.Groups["v2"].Value, out var n2);
-            if (n1) p1 = -p1;
-            if (n2) p2 = -p2;
-            return (p1, p2);
+            var saldoM = ms[^1];
+            var movM = ms[^2];
+
+            decimal balance = ParseEsDecimal(saldoM.Groups["num"].Value);
+            if (saldoM.Groups["saldoNeg"].Success) balance = -balance;
+
+            decimal amount = ParseEsDecimal(movM.Groups["num"].Value);
+            if (movM.Groups["sign"].Success) amount = -amount;
+
+            // Defensa específica: no inviertas por guiones pegados a texto (p.ej. "IMP.CRE.LEY 25413-83.351,31")
+            // Si no hay espacio/ini antes del "-", RxMoneyForParsing NO lo toma como signo (queda positivo).
+            return (amount, balance);
         }
 
-        // Decide apertura/cierre usando "Total final" o último balance como ancla
-        private static (decimal? opening, decimal? closing) TryExtractBalancesSmart(string full, decimal? lastBalance)
+        // Portada (página 1)
+        private static readonly Regex RxDollarAmount =
+            new(@"\$\s*(?<m>\d{1,3}(?:\s?\.\s?\d{3})*,\s*\d\s*\d)(?<neg>-)?",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+        // Portada (página 1): aceptar año de 2 o 4 dígitos
+
+        private static readonly Regex RxAnyDate =
+            new(@"\b(?<d>\d{2}\s*/\s*\d{2}\s*/\s*(?:\d{2}|\d{4}))\b", RegexOptions.Compiled);
+
+        // Meta portada: N° de cuenta, CBU, CUIT
+        private static readonly Regex RxAccountNumber =
+            new(@"(?i)\bN[°º]\s*(?<raw>[\d\s\-]+)\b", RegexOptions.Compiled);
+
+        private static readonly Regex RxCBU =
+            new(@"(?i)\bCBU\b.*?(?<cbu>\d{22})", RegexOptions.Compiled);
+
+        private static readonly Regex RxCUIT =
+            new(@"(?i)\bCUIT\b.*?(?<cuit>\d{2}-\d{8}-\d)", RegexOptions.Compiled);
+
+
+        // Monto "delimitado": no pegado a letras/dígitos a izquierda/derecha
+        private static readonly Regex RxMoneyDelimited = new Regex(
+            //  1) opcional '-' adelante (importe), 2) número con puntos y coma, 3) opcional '-' final (saldo)
+            //  Acepta espacios entre dígitos/puntos/coma: 1 .528 .895,1 1
+            @"(?<![\p{L}\p{Nd}])\s*(-?\s*(?:\d{1,3}(?:\s?\.\s?\d{3})*),\s?\d{2}-?)\s*(?![\p{L}\p{Nd}])",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant
+        );
+
+        // Fecha al inicio de línea (para removerla de la descripción visible)
+        private static readonly Regex RxLeadingDate =
+            new(@"(?m)^\s*\d{1,2}\s*/\s*\d{1,2}\s*/\s*\d{2}\s*", RegexOptions.Compiled);
+
+        // Monto "flexible" y delimitado: acepta espacios OCR entre miles y centavos, opcional '$',
+        // signo '-' prefijo (débito) o sufijo (saldo negativo), y no pegado a letras/dígitos.
+        private static readonly Regex RxMoneyLooseDelimited = new(
+            @"(?<![\p{L}\p{Nd}])\$?\s*-?\d{1,3}(?:\.\s*\d{3}){0,4},\s*\d\s*\d-?(?![\p{L}\p{Nd}])",
+            RegexOptions.Compiled);
+
+        // Línea "Mes Año" tipo "Marzo 2023" (opcional: si querés ocultar estas leyendas)
+        private static readonly Regex RxMonthYearLine = new(
+            @"(?mi)^\s*(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\s+\d{4}\s*$",
+            RegexOptions.Compiled);
+
+        // --- Pegar junto a tus otras Regex / helpers (mismo nivel que RxStrictAmount, etc.)
+
+        private static readonly Regex RxHeaderStart = new(
+            @"Datos\s+de\s+la\s+cuenta",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly Regex RxHeaderEnd = new(
+            @"\b(Movimientos|Fecha\s+Descripci[oó]n)\b",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly Regex RxDate = new(
+            @"\b\d{2}/\d{2}/(?:\d{2}|\d{4})\b",
+            RegexOptions.Compiled);
+
+        private static readonly Regex RxMoneyHeader = new(
+            @"\$?\s*-?\s*\d{1,3}(?:[ \.]\d{3})*,\s*\d\s*\d\s*-?",
+            RegexOptions.Compiled);
+
+        // Avisos que marcan el fin del encabezado útil
+        private static readonly Regex RxHeaderStopNotice = new(
+            @"Dispon[eé]s de 30 d[ií]as.*?resumen\.|El cr[eé]dito fiscal discriminado.*?impositivos\.",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.Singleline);
+
+        // Limpia y parsea importes ARS con coma decimal y '-' sufijo o prefijo
+        private static decimal? ParseArs(string raw)
         {
-            var (v1, v2) = TryExtractTwoFromSaldos(full);
-            if (v1 is null && v2 is null)
-                return (null, null);
+            if (string.IsNullOrWhiteSpace(raw)) return null;
+            var s = raw.Trim();
 
-            // 1) Ancla con el Total del pie (más confiable)
-            var finalFromTotal = TryExtractFinalFromTotal(full);
-            if (finalFromTotal is not null && v1 is not null && v2 is not null)
-            {
-                var d1 = Math.Abs(finalFromTotal.Value - v1.Value);
-                var d2 = Math.Abs(finalFromTotal.Value - v2.Value);
-                if (d1 <= d2) return (v2, v1); // v1 es final ⇒ opening=v2, closing=v1
-                else return (v1, v2);          // v2 es final ⇒ opening=v1, closing=v2
-            }
+            var neg = false;
+            if (s.EndsWith("-")) { neg = true; s = s[..^1]; }
+            if (s.StartsWith("-")) { neg = true; s = s[1..]; }
 
-            // 2) Si no hay "Total", anclá con el último balance de movimientos (si existe)
-            if (lastBalance is not null && v1 is not null && v2 is not null)
-            {
-                var d1 = Math.Abs(lastBalance.Value - v1.Value);
-                var d2 = Math.Abs(lastBalance.Value - v2.Value);
-                if (d1 <= d2) return (v2, v1);
-                else return (v1, v2);
-            }
+            s = s.Replace("$", "").Replace(" ", "");
+            s = s.Replace(".", "");       // miles
+            s = s.Replace(",", ".");      // decimales
 
-            // 3) Fallback: si solo encontraste uno, asumilo como closing
-            if (v1 is not null && v2 is null) return (null, v1);
-            if (v2 is not null && v1 is null) return (null, v2);
+            if (decimal.TryParse(s, System.Globalization.NumberStyles.Number,
+                                 System.Globalization.CultureInfo.InvariantCulture, out var d))
+                return neg ? -d : d;
 
-            // 4) Último fallback conservador: asumir orden típico "Inicial, Final"
-            return (v1, v2);
-        }
-
-        // === NUEVO ===
-        // Recalcula cada Amount a partir del balance acumulado y corrige outliers
-        private static void ReconcileAmountsWithRunningBalance(AccountStatement account, ParseResult result)
-        {
-            var txs = account.Transactions;
-            if (txs == null || txs.Count == 0) return;
-
-            for (int i = 0; i < txs.Count; i++)
-            {
-                decimal inferred;
-
-                if (i == 0 && account.OpeningBalance.HasValue)
-                {
-                    inferred = Math.Round(txs[0].Balance - account.OpeningBalance.Value, 2);
-                }
-                else if (i > 0)
-                {
-                    inferred = Math.Round(txs[i].Balance - txs[i - 1].Balance, 2);
-                }
-                else continue;
-
-                if (Math.Abs(inferred - txs[i].Amount) > 0.01m)
-                {
-                    var old = txs[i].Amount;
-                    txs[i].Amount = inferred;
-                    txs[i].Type = inferred >= 0 ? "credit" : "debit";
-                    result.Warnings.Add($"[amount-reconciled] {txs[i].Date:yyyy-MM-dd} '{txs[i].Description}' old={old} new={inferred}");
-                }
-            }
-        }
-        // === /NUEVO ===
-
-        private static IEnumerable<string> Chunk(string s, int size)
-        {
-            if (string.IsNullOrEmpty(s)) yield break;
-            for (int i = 0; i < s.Length; i += size)
-                yield return s.Substring(i, Math.Min(size, s.Length - i));
-        }
-        private static void EmitRawFull(ParseResult result, string raw)
-        {
-            if (!DIAG_RAW_FULL) return;
-            var txt = (raw ?? "").Replace("\r\n", "\n").Replace('\r', '\n');
-            int n = 0;
-            foreach (var c in Chunk(txt, RAW_CHUNK_SIZE))
-            {
-                result.Warnings.Add($"[raw-full #{++n}] {c}");
-                if (n >= RAW_MAX_CHUNKS) break;
-            }
-            result.Warnings.Add($"[raw-full] total_chunks={n}, total_chars={txt.Length}");
-        }
-
-        private static string NormalizeWhole(string s)
-        {
-            if (s == null) return string.Empty;
-            s = s.Replace("\u00A0", " ").Replace("\u202F", " ");
-            s = s.Replace('\u2212', '-').Replace('\u2012', '-').Replace('\u2013', '-').Replace('\u2014', '-');
-            s = s.Replace("\r\n", "\n").Replace('\r', '\n');
-            return s;
-        }
-        private static string NormalizeLine(string line)
-        {
-            if (string.IsNullOrWhiteSpace(line)) return string.Empty;
-            var s = line;
-            s = Regex.Replace(s, @"[ \t]+", " ").Trim();
-            s = Regex.Replace(s, @"-\s+(?=\d)", "-");
-            s = Regex.Replace(s, @"(\d{1,3})\s*\.\s*(\d{3},\s*\d{2})", "$1.$2");
-            s = Regex.Replace(s, @"(?<=\d)\s+,", ",");
-            s = Regex.Replace(s, @",\s*(\d{2})\b", @",$1");
-            s = Regex.Replace(s, @",\s*(\d)\s+(\d)\b", @",$1$2");
-            s = Regex.Replace(s, @"\b(\d)\s+(\d)\s*/\s*(\d{2})\s*/\s*(\d{2,4})\b", "$1$2/$3/$4");
-            s = Regex.Replace(s, @"\b(\d{2})\s*/\s*(\d{2})\s*/\s*(\d{2,4})\b", "$1/$2/$3");
-            s = Regex.Replace(s, @"(?<=\d{2}/\d{2}/(?:\d{2}|\d{4}))(?=[A-Za-z])", " ");
-            return s;
-        }
-        private static string ExtractMovementsRegion(string full)
-        {
-            var startRx = Rx(@"(?ims)(^|\n)\s*(Movimientos|Fecha\s+Descripci[oó]n\s+Origen\s+Cr[ée]dito\s+D[ée]bito\s+Saldo)\s*(\n|$)");
-            var mStart = startRx.Match(full);
-            if (!mStart.Success) return full;
-            int startIdx = mStart.Index + mStart.Length;
-
-            var endRx = Rx(@"(?ims)(^|\n)\s*(Total\s*\$|Saldos?|Canales\s+de\s+atenci[oó]n|Chate[aá])\b");
-            var mEnd = endRx.Match(full, startIdx);
-            int endIdx = mEnd.Success ? mEnd.Index : full.Length;
-
-            return full.Substring(startIdx, endIdx - startIdx);
-        }
-        private static string? DetectAccountNumber(string full)
-        {
-            var m = Regex.Match(full, @"(?i)Cuenta:\s*([0-9\- ]+)|N[º°]?\s*[: ]\s*([0-9\- ]{6,})");
-            if (m.Success)
-            {
-                var g = m.Groups[1].Success ? m.Groups[1].Value : (m.Groups.Count > 2 && m.Groups[2].Success ? m.Groups[2].Value : null);
-                return g?.Trim();
-            }
             return null;
         }
-        private static string CanonicalizeDescription(string s)
+
+        private static string SliceHeaderZone(string page1Text)
         {
-            var cleaned = Regex.Replace(s ?? "", @"\s+", " ").Trim();
-            foreach (var (rx, canon) in CanonMap) cleaned = rx.Replace(cleaned, canon);
-            cleaned = Regex.Replace(cleaned, @"\bCUENTA\s+ORIGEN\s+CAJA(?:\s+A)?\b", "", RegexOptions.IgnoreCase);
-            cleaned = Regex.Replace(cleaned, @"\s*\|\s*", " | ");
-            cleaned = Regex.Replace(cleaned, @"(\s*\|\s*){2,}", " | ");
-            return cleaned.Trim(' ', '|');
+            if (string.IsNullOrWhiteSpace(page1Text)) return page1Text;
+
+            var start = RxHeaderStart.Match(page1Text);
+            var end = RxHeaderEnd.Match(page1Text);
+
+            int i0 = start.Success ? start.Index : 0;
+            int i1 = end.Success && end.Index > i0 ? end.Index : page1Text.Length;
+
+            // cortar antes de los avisos legales SIEMPRE, incluso en fallback
+            var stop = RxHeaderStopNotice.Match(page1Text, i0);
+            if (stop.Success && stop.Index > i0 && stop.Index < i1)
+                i1 = stop.Index;
+
+            return page1Text.Substring(i0, i1 - i0);
         }
-        private static (string left, string? right) SplitAtInlineDateIfAny(string s)
+
+        private static (decimal? opening, decimal? closing)
+        ExtractHeaderBalancesByProximity(string page1Text, int proximityWindow = 80)
         {
-            var m = InlineDateSplitRx.Match(s);
-            if (m.Success)
+            var header = SliceHeaderZone(page1Text);
+            if (string.IsNullOrWhiteSpace(header)) header = page1Text; // fallback por si no encontró marcadores
+            var hdr = TightenForNumbers(header);
+
+            // Todas las fechas y montos con su posición
+            var dates = RxDate.Matches(header).Cast<Match>().ToList();
+            var moneys = RxMoneyHeader.Matches(header).Cast<Match>().ToList();
+
+            if (dates.Count < 2 || moneys.Count == 0) return (null, null);
+
+            // Identificar cuál de las dos fechas es inicio y cuál fin
+            DateTime d1, d2;
+            TryParseDate2Or4(dates.First().Value, out d1);
+            TryParseDate2Or4(dates.Last().Value, out d2);
+            var startDate = d1 <= d2 ? dates.First() : dates.Last();
+            var endDate = d1 <= d2 ? dates.Last() : dates.First();
+
+            Match? ClosestMoneyTo(Match date) =>
+                    moneys.Select(m => (m, dist: Math.Abs(m.Index - date.Index)))
+                          .Where(x => x.dist <= proximityWindow)
+                          .OrderBy(x => x.dist).Select(x => x.m).FirstOrDefault()
+                    ?? moneys.OrderBy(m => Math.Abs(m.Index - date.Index)).FirstOrDefault();
+
+            var openM = ClosestMoneyTo(startDate);
+            var closeM = ClosestMoneyTo(endDate);
+
+            // Si ambos apuntan al mismo match, invalida apertura
+            if (openM is not null && closeM is not null && openM.Index == closeM.Index) openM = null;
+
+            var opening = ParseArs(openM?.Value ?? "");
+            var closing = ParseArs(closeM?.Value ?? "");
+
+            // Solo aceptar apertura positiva y cierre negativo
+            if (opening is null || opening <= 0) opening = null;
+            if (closing is null || closing >= 0) closing = null;
+
+            return (opening, closing);
+        }
+
+        // Antes se llamaba ExtractOpeningClosingFromPage1; renombrado para claridad
+        private static (decimal? opening, decimal? closing) ExtractOpeningClosingDollar(string page1)
+        {
+            if (string.IsNullOrWhiteSpace(page1)) return (null, null);
+
+            var headerRaw = SliceHeaderZone(page1);
+            var header = TightenForNumbers(headerRaw);
+
+            decimal? opening = null;
+            decimal? closing = null;
+
+            var dollarMatches = RxDollarAmount.Matches(header);
+
+            var dates = RxAnyDate.Matches(header);
+            Match? endDate = dates.Count > 0
+                ? dates.Cast<Match>().OrderBy(m =>
+                {
+                    TryParseDate2Or4(m.Value, out var d); return -d.Ticks; // mayor = fin
+                }).First()
+                : null;
+
+            var dollars = RxDollarAmount.Matches(header).Cast<Match>().ToList();
+
+            // Cierre = $ con sufijo '-'; preferir el más cercano a la fecha de fin
+            var negs = dollars.Where(m => m.Groups["neg"].Success).ToList();
+            if (negs.Count > 0)
             {
-                var left = s[..m.Index].TrimEnd();
-                var right = s[m.Index..].TrimStart();
-                return (left, right.Length > 0 ? right : null);
+                var pick = endDate is null
+                    ? negs[0]
+                    : negs.OrderBy(m => Math.Abs(m.Index - endDate.Index)).First();
+                try { closing = ParseSaldo(pick.Groups["m"].Value + "-"); } catch { }
             }
-            return (s, null);
+
+            // Apertura = $ positivo cerca de "Saldos"
+            var idx = header.IndexOf("Saldos", StringComparison.OrdinalIgnoreCase);
+            if (idx >= 0)
+            {
+                var slice = header.Substring(idx, Math.Min(300, header.Length - idx));
+                foreach (Match m in RxDollarAmount.Matches(slice))
+                    if (!m.Groups["neg"].Success && TryParseDecimalEs(m.Groups["m"].Value, out var v)) { opening = v; break; }
+            }
+
+            // Fallback: mayor $ positivo del header
+            if (!opening.HasValue)
+            {
+                decimal? maxPos = null;
+                foreach (var m in dollars)
+                    if (!m.Groups["neg"].Success && TryParseDecimalEs(m.Groups["m"].Value, out var v))
+                        if (maxPos is null || v > maxPos) maxPos = v;
+                opening = maxPos;
+            }
+
+            return (opening, closing);
         }
-        private static decimal ParseEsMoney(string tok, out bool isNegative)
+
+        private static (decimal? opening, decimal? closing) ExtractHeaderBalances(string page1Text)
         {
-            tok = (tok ?? string.Empty).Trim();
-            isNegative = tok.StartsWith("-") || tok.EndsWith("-");
-            tok = tok.Trim('-').Trim();
-            tok = tok.Replace(".", "").Replace(" ", "");
-            tok = tok.Replace(",", ".");
-            return decimal.Parse(tok, CultureInfo.InvariantCulture);
+            var (opProx, clProx) = ExtractHeaderBalancesByProximity(page1Text, proximityWindow: 80);
+            var (opDollar, clDollar) = ExtractOpeningClosingDollar(page1Text);
+
+            var opening = opProx ?? opDollar;
+            var closing = clDollar ?? clProx;
+
+            if (opening.HasValue && closing.HasValue && Math.Abs(opening.Value - closing.Value) < 0.005m)
+                opening = null;               // => se calcula con txs
+            if (opening.HasValue && opening.Value <= 0) opening = null;
+
+            return (opening, closing);
         }
+
+        private static readonly Regex RxAnyAmount =
+            new Regex(@"-?\d{1,3}(?:\.\d{3})*,\d{2}-?", RegexOptions.Compiled);
+        // Dinero "laaaaxo" para localizar el 1.º y 2.º monto en el texto crudo (permite espacios)
+        private static readonly Regex RxMoneyLoose = new(@"\-?\d{1,3}(?:[.\s]\d{3})*,\d{2}\-?", RegexOptions.Compiled);
+
+        // Filtros de “ruido de Origen”
+        private static readonly Regex RxAllDigitsish = new(@"^[\d\s.\-]+$", RegexOptions.Compiled);
+        private static readonly Regex RxCuit = new(@"\b\d{2}-\d{7,8}-\d\b", RegexOptions.Compiled);
+        private static readonly Regex RxLongId = new(@"\b\d{10,}\b", RegexOptions.Compiled); // doc-id, CBU, tarjetas, etc.
+        private static readonly string[] DropTokens = { "PROPIA", "VARIOS", "CUENTA ORIGEN" /* podés sumar más acá */ };
+
+        private static readonly Regex RxLongDigits =
+            new Regex(@"\b\d{10,}\b", RegexOptions.Compiled);
+
+        private static readonly Regex RxMostlyDigits =
+            new Regex(@"^\s*[\d\s\.\-]+$", RegexOptions.Compiled);
+
+        private static readonly Regex RxCodey =
+            new Regex(@"^[A-Z]{2,}\d{3,}$", RegexOptions.Compiled);
+
+        // artefacto típico por OCR (“ -1” escapado del importe negativo)
+        private static readonly Regex RxStrayMinusDigit =
+            new Regex(@"(?<=\s)-\d{1,3}(?=\s|$)", RegexOptions.Compiled);
+
+        // pistas de “Origen” que sí nos interesan
+        private static readonly string[] OriginKeepHints = new[] {
+            "HABERES","ACRED.HABERES",
+            "PROVEEDORES",
+            "FIMA PREMIUM",
+            "REG.RECAU.SIRCREB",
+            "AFIP","PLANRG",
+            "D.A. AL VTO","BUSINESS",
+            "BANCO","SANTANDER","NUEVO BANCO",
+            "MERCANTIL","HONORARIOS"
+        };
+
+        private static bool ShouldKeepOriginLine(string s)
+        {
+            var t = s.Trim();
+            if (t.Length == 0) return false;
+            if (RxAnyAmount.IsMatch(t)) return false;          // fuera montos
+            if (RxCuit.IsMatch(t)) return false;               // fuera CUIT
+            if (RxLongDigits.IsMatch(t)) return false;         // largas tiras de números/IDs
+            if (RxMostlyDigits.IsMatch(t)) return false;
+            if (RxCodey.IsMatch(t)) return false;              // “PROD12345”, etc.
+            if (t.Contains("0000000000")) return false;        // ceros infinitos (CBUs/refs)
+                                                               // Mantener si contiene alguna pista útil de origen / banco / concepto
+            return OriginKeepHints.Any(h => t.IndexOf(h, StringComparison.OrdinalIgnoreCase) >= 0)
+                   || t.Split(' ').Count(w => w.Length > 1) >= 1;
+        }
+
+        private static string PostClean(string s)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return string.Empty;
+
+            // 1) artefactos del parser/servicio
+            s = s.Replace("@@@", " ");
+
+            // 2) espacios múltiples y guiones sueltos
+            s = Regex.Replace(s, @"\s{2,}", " ").Trim();
+            s = Regex.Replace(s, @"\s*—\s*—\s*", " — "); // doble em-dash -> uno
+            s = Regex.Replace(s, @"\s*·\s*·\s*", " · "); // doble punto intermedio -> uno
+
+            // 3) “-1” sueltos que se cuelan de signos de saldo negativos
+            s = Regex.Replace(s, @"(?<=\s|^)-1(?=\s|$)", "");
+
+            // 4) limpia separadores en extremos
+            s = s.Trim(' ', '—', '·', '-');
+
+            // 5) colapsa espacios otra vez por si quedaron huecos
+            s = Regex.Replace(s, @"\s{2,}", " ").Trim();
+
+            return s;
+        }
+
+        // encabezados/pies/columnas que NO queremos como extra
+        private static readonly string[] DropStarts = {
+            "Página", "<<PAGE:", "Resumen de ", "CBU", "N° ", "Credito", "Crédito", "Débito", "Saldo"
+        };
+
+        // tokens genéricos de Origen a descartar
+        private static readonly string[] DropExact = {
+            "PROPIA", "VARIOS", "CUENTA ORIGEN", "PROVEEDORES",
+            "ACRED.HABERES", "REG.RECAU.SIRCREB"
+        };
+
+        // nombres útiles que SÍ queremos dejar pasar aunque estén en mayúsculas
+        private static bool LooksLikeUsefulName(string line)
+        {
+            // Heurística: dos o más palabras con letras, o contiene “FIMA”, “CLASE”, “PREMIUM”
+            var words = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            bool twoWordsWithLetters = words.Count(w => w.Any(char.IsLetter)) >= 2;
+            bool fundHints = line.Contains("FIMA", StringComparison.OrdinalIgnoreCase)
+                          || line.Contains("CLASE", StringComparison.OrdinalIgnoreCase)
+                          || line.Contains("PREMIUM", StringComparison.OrdinalIgnoreCase);
+            return twoWordsWithLetters || fundHints;
+        }
+
+        private static List<string> ExtractExtraDetailLines(string blockLarge, int blockStart, int blockEnd, int maxLines)
+        {
+            // localizar el 2.º monto (saldo) en el bloque crudo y tomar desde ahí
+            var moneys = RxMoneyLoose.Matches(blockLarge);
+            if (moneys.Count < 2) return new();
+
+            int from = moneys[1].Index + moneys[1].Length;
+            if (from < 0 || from >= blockLarge.Length) return new();
+
+            int len = Math.Max(0, Math.Min(blockEnd - blockStart, blockLarge.Length - from));
+            var tail = blockLarge.Substring(from, len);
+
+            var keep = new List<string>(maxLines);
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var raw in tail.Split('\n'))
+            {
+                var l0 = raw.Trim();
+                if (l0.Length == 0) continue;
+
+                // limpieza básica (@@@ y espacios) antes de decidir
+                var l = PostClean(l0);
+                if (l.Length == 0) continue;
+
+                // 1) descartar obvios de encabezado/pie/columnas
+                if (DropStarts.Any(p => l.StartsWith(p, StringComparison.OrdinalIgnoreCase))) continue;
+
+                // 2) descartar ruido de Origen/códigos
+                if (DropExact.Any(t => string.Equals(l, t, StringComparison.OrdinalIgnoreCase))) continue;
+                if (RxAllDigitsish.IsMatch(l)) continue;
+                if (RxCuit.IsMatch(l)) continue;
+                if (RxLongId.IsMatch(l)) continue;
+
+                // 3) quedarnos con líneas "humanas"
+                if (!l.Any(char.IsLetter)) continue;
+                if (!LooksLikeUsefulName(l)) continue;
+
+                // 4) evitar duplicados / repeticiones con distinta puntuación
+                var norm = Regex.Replace(l, @"\s+", " ").Trim();
+                if (seen.Contains(norm)) continue;
+                seen.Add(norm);
+
+                keep.Add(norm);
+                if (keep.Count >= maxLines) break;
+            }
+
+            return keep;
+        }
+
+        // Normaliza todos los “dash-like” Unicode a '-' ASCII
+        private static string NormalizeDashes(string s) =>
+            string.IsNullOrEmpty(s) ? s : Regex.Replace(s, "[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]", "-");
+
+        // ===== Utils =====
+        private static string StripDelimEnd(string s) =>
+            string.IsNullOrEmpty(s) ? string.Empty : (s.EndsWith("@@@") ? s[..^3] : s);
+
+        // Normalización solo para DETECCIÓN de montos (no altera Description/OriginalDescription)
+        private static string TightenForNumbers(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return s;
+
+
+            // 0. Normalizar TODOS los espacios Unicode a ' ' (ASCII)
+            //    \p{Zs} = Space_Separator (incluye NBSP, NNBSP, thin space, etc.)
+            var t = Regex.Replace(s, @"\p{Zs}+", " ");
+            t = t.Replace('\u00A0', ' '); // NBSP (por las dudas)
+            t = NormalizeDashes(t);
+
+
+            // 0) Pegar un '-' que quedó separado del monto por espacios/salto/@@@
+            // Flatten @@@ y saltos para no cortar tokens numéricos
+            t = Regex.Replace(t, @"(?:@{3}|\r?\n)", " ");
+
+            // 0.b) Si el '-' quedó pegado a una palabra (p.ej. "ING.BRUTOS- 81.234,56"),
+            //      separarlo de la palabra para que luego podamos unir "- " con el monto.
+            t = Regex.Replace(t,
+                @"(?<=[\p{L}\p{Nd}])-(?=\s*\d{1,3}(?:\.\d{3})*,\d{2}\b)", " -");
+
+            // 0.c Convertir @@@ y saltos a un solo espacio para no romper tokens
+            t = Regex.Replace(t, @"(?:@{3}|\r?\n)", " ");
+
+            // 1) Quitar espacios alrededor de puntos y comas
+            t = Regex.Replace(t, @"\s*\.\s*", ".");
+            t = Regex.Replace(t, @"\s*,\s*", ",");
+
+            // 1.b) Asegurar punto de miles cuando hay " . " entre dígitos: "41 . 107,30" -> "41.107,30"
+            t = Regex.Replace(
+                t,
+                @"(?<=\d)\s*\.\s*(?=\d{3},\d{2}\b)",
+                "."
+            );
+
+            // 1.c) Si quedó un espacio inmediatamente antes de la coma de decimales, quitarlo
+            t = Regex.Replace(t, @"(?<=\d)\s+(?=,\d{2}\b)", "");
+
+            // 2.a) Centavos partidos: ",1 1" -> ",11"
+            t = Regex.Replace(t, @",(?<a>\d)\s+(?<b>\d)\b", @",${a}${b}");
+
+            // 2.a2) Entero "cortado" justo antes de la coma (1 o 2 dígitos):
+            // "-41 1 ,68" / "-41 11 ,68" -> "-411,68"
+            t = Regex.Replace(
+                t,
+                @"(?<=^|\s)-\s*(?<head>\d{1,3})\s+(?<tail>\d{1,2})\s*,\s*(?<c1>\d)\s*(?<c2>\d)\b",
+                "-${head}${tail},${c1}${c2}"
+            );
+
+            // 2.a3) Igual que arriba pero si ya limpiaste espacios alrededor de la coma:
+            // "-41 1,68" / "-41 11,68" -> "-411,68"
+            t = Regex.Replace(
+                t,
+                @"(?<=^|\s)-\s*(?<head>\d{1,3})\s+(?<tail>\d{1,2}),(?<c1>\d)(?<c2>\d)\b",
+                "-${head}${tail},${c1}${c2}"
+            );
+
+            // 2.b) Glitch OCR: "-1 1.996.000,00" -> "-11.996.000,00"
+            t = Regex.Replace(t, @"-(\d)\s+(?=\1(?:\.\d{3}){1,3},\d{2}\b)", "-$1");
+
+            // 2.b1) OCR: "-1 16.350,00"  -> "-116.350,00"
+            // quita SOLO el espacio justo después de "-1" si viene un monto con miles y decimales
+            t = Regex.Replace(t,
+                @"(?<=-1)\s+(?=\d{2}\.\d{3},\d{2}\b)", "");
+
+            // 2.b2) OCR: "18.1 10,00" -> "18.110,00"  (último grupo de miles roto)
+            // acepta 1 o 2 dígitos antes de la coma porque puede venir "1 10,00", "11 0,00", etc.
+            t = Regex.Replace(t,
+                @"(?<=\.\d{1,3})\s+(?=\d{1,2},\d{2}\b)", "");
+
+            // 2.b3) OCR entre grupos de miles: "6.01 1.703,10" -> "6.011.703,10"
+            t = Regex.Replace(t,
+                @"(?<=\.\d{2,3})\s+(?=\d\.\d{3}(?:\.\d{3})*,\d{2}\b)", "");
+
+            // 2.b3 REFORZADO: "29.11 1.536,60" -> "29.111.536,60"
+            t = Regex.Replace(t,
+                @"(?<=\.\d{1,3})\s+(?=\d(?:\.\d{3}){1,6},\d{2}\b)", "");
+
+            // 2.b3 REFORZADO BIS) Entre grupos de miles puede venir espacio / salto / @@@
+            //    "29.11 1.536,60" o "29.11@@@1.536,60" -> "29.111.536,60"
+            t = Regex.Replace(t,
+                @"(?<=\.\d{1,3})\s*(?:@@@|\r?\n)?\s+(?=\d\.\d{3}(?:\.\d{3})*,\d{2}\b)",
+                "");
+
+            // 2.b4) Último grupo de miles espacio-separado antes de la coma: "21.700.1 1 1,85" -> "21.700.111,85"
+            t = Regex.Replace(t,
+                @"(?<=\.)((?:\d\s+){1,2}\d)(?=,\d{2}\b)",
+                m => m.Value.Replace(" ", ""));
+
+            // 2.b5) Variante cuando hay 2 espacios rotos: "24.0 1 1,36" -> "24.011,36"
+            t = Regex.Replace(t,
+                @"(?<=\.\d)\s+(?=\d(?:\s+\d)?,\d{2}\b)", "");
+
+            // 2.c) Espacio roto en el último grupo de miles antes de la coma
+            //      "24.01 1,36" -> "24.011,36"  (ahora acepta 1–3 dígitos antes de la coma)
+            t = Regex.Replace(t, @"(?<=\.\d{1,3})\s+(?=\d{1,3},\d{2}\b)", "");
+
+            // 2.c1) Espacio roto entre el último dígito de miles y el primer dígito del grupo siguiente,
+            //       p.ej. "-1.1 15,95" -> "-1.115,95" (no exige punto tras el dígito de la derecha)
+            t = Regex.Replace(t, @"(?<=\.\d{1,3})\s+(?=\d{1,3}(?:,|\.\d{3},)\d{2}\b)", "");
+
+            // 2.c2) Si quedó un espacio justo después de "-1" y antes de una secuencia con miles+decimales,
+            //       cubrimos también montos con 1–3 dígitos de cabeza: "-1 115,95" -> "-1115,95"
+            t = Regex.Replace(t, @"(?<=-1)\s+(?=\d{1,3}(?:\.\d{3})*,\d{2}\b)", "");
+
+            // 2.d) "1 15.315,81" -> "115.315,81" (un dígito suelto + grupo de 2 dígitos)
+            t = Regex.Replace(t,
+                @"(?<=\b\d)\s+(?=\d{2}\.\d{3},\d{2}\b)", "");
+
+            // 2.d1) Dígito suelto + grupo de 2 dígitos antes del primer punto de miles
+            //    "1 15.315,81" o "1@@@15.315,81" -> "115.315,81"
+            t = Regex.Replace(t,
+                @"(?<=\b\d)\s*(?:@@@|\r?\n)?\s+(?=\d{2}\.\d{3},\d{2}\b)",
+                "");
+
+            // 2.e) "1 536,60" -> "1.536,60" (faltaba el primer punto de miles)
+            t = Regex.Replace(t,
+                @"(?<=\b\d{1,3})\s+(?=\d{3},\d{2}\b)", ".");
+
+            // 2.e1) Faltaba el primer punto de miles (con separador raro en el medio)
+            //    "1 536,60" o "1@@@536,60" -> "1.536,60"
+            t = Regex.Replace(t,
+                @"(?<=\b\d{1,3})\s*(?:@@@|\r?\n)?\s+(?=\d{3},\d{2}\b)",
+                ".");
+
+            // 2.d) Signo + entero + coma + centavos partidos por espacios -> pegarlos
+            //     "-41 @@@ , 7 1" -> "-41,71"   |   "- 333 , 4 1" -> "-333,41"
+            t = Regex.Replace(t,
+                @"(?<=^|\s)-\s*(?<ent>\d{1,3})\s*,\s*(?<a>\d)\s*(?<b>\d)\b",
+                "-${ent},${a}${b}");
+
+            // 2.e) Entre grupos de miles: "29.11 1.536,60" (o con @@@/saltos) -> "29.111.536,60"
+            t = Regex.Replace(t,
+                @"(?<=\.\d{1,3})\s+(?=\d\.\d{3}(?:\.\d{3})*,\d{2}\b)", "");
+
+            // 2.f) Dígito(s) sueltos antes de un monto grande: "1 15.315,81" -> "115.315,81"
+            //     (también cubre "11 5.315,81" -> "115.315,81")
+            t = Regex.Replace(t,
+                @"(?<=^|\s)(?<lead>\d{1,2})\s+(?=\d{1,3}(?:\.\d{3}){1,3},\d{2}(?:-|\b))",
+                "${lead}");
+
+            // 3) Débitos con espacio tras el signo: "- 333,41" -> "-333,41"
+            t = Regex.Replace(t, @"-\s+(?=\d)", "-");
+
+            // Signo de débito con espacios entre medio: "- 333,41" / "-   333,41" -> "-333,41"
+            t = Regex.Replace(t, @"(?<=^|\s)-\s{0,3}(?=\d{1,3}(?:\.\d{3})*,\d{2}\b)", "-");
+
+            // 4) Saldos negativos con espacio antes del sufijo: "99 -" -> "99-"
+            t = Regex.Replace(t, @"(?<=\d)\s+-\b", "-");
+
+            // 5) Colapsar espacios largos
+            t = Regex.Replace(t, @"[ \t]{2,}", " ");
+
+            // Centavos partidos: ",1 1" / ",5 6" -> ",11" / ",56"  (ya lo tenías, lo dejo para énfasis)
+            t = Regex.Replace(t, @",(?<a>\d)\s+(?<b>\d)\b", @",${a}${b}");
+
+            // Miles con uno o dos espacios antes de la coma: "… .01 1,36" / "… .1 10,00" -> sin espacios
+            t = Regex.Replace(t, @"(?<=\.\d{1,2})\s+(?=\d,\d{2}\b)", "");
+
+            return t;
+        }
+
+        private static string FixInlineMinusBeforeMoney(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return s;
+            s = NormalizeDashes(s);
+
+            // 25413-83.351,31  ->  25413 -83.351,31  (evita que ese '-' se tome como signo)
+            return Regex.Replace(
+                s,
+                @"(?<=[\p{L}\p{Nd}])-(?=\s*\d{1,3}(?:\s?\.\s?\d{3})*,\s?\d{2}(?:-|\b))",
+                " -"
+            );
+        }
+
+
+        private static string NormalizeMoneyToken(string s)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return s;
+            // Unificar espacios (incluyendo NBSP) y quitarlos
+            s = s.Replace('\u00A0', ' ');
+            s = Regex.Replace(s, @"\s+", "");
+            return s;
+        }
+
+        // Núcleo “estricto”: solo x,xx | xx,xx | xxx,xx | x.xxx,xx | xx.xxx,xx | ...
+        private static readonly Regex RxStrictAmountCore = new Regex(
+            @"^\d{1,3}(?:\.\d{3})*,\d{2}$",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant
+        );
+
+        private static (string? accountDigits, string? cbu, string? cuit) ExtractAccountMetaFromPage1(string page1)
+        {
+            string? acc = null, cbu = null, cuit = null;
+
+            var mAcc = RxAccountNumber.Match(page1);
+            if (mAcc.Success)
+            {
+                var raw = mAcc.Groups["raw"].Value;
+                acc = new string(raw.Where(char.IsDigit).ToArray());
+                if (string.IsNullOrWhiteSpace(acc)) acc = null;
+            }
+
+            var mCBU = RxCBU.Match(page1);
+            if (mCBU.Success) cbu = mCBU.Groups["cbu"].Value;
+
+            var mCUIT = RxCUIT.Match(page1);
+            if (mCUIT.Success) cuit = mCUIT.Groups["cuit"].Value;
+
+            return (acc, cbu, cuit);
+        }
+
+        // Helper seguro para "ES" (miles con '.' y decimales con ',')
+        private static bool TryParseDecimalEs(string s, out decimal value)
+        {
+            var norm = (s ?? string.Empty).Replace(".", "").Replace(",", ".");
+            return decimal.TryParse(norm, NumberStyles.Number, CultureInfo.InvariantCulture, out value);
+        }
+
+        private static bool TryParseDateDdMmYy(string s, out DateTime d)
+        {
+            var clean = Regex.Replace(s ?? "", @"\s+", "");   // quita espacios dentro de "1 1/04/23"
+            clean = Regex.Replace(clean, @"\s*/\s*", "/");    // normaliza barras
+            return DateTime.TryParseExact(clean, "dd/MM/yy", CultureInfo.InvariantCulture, DateTimeStyles.None, out d);
+        }
+
+        private static bool TryParseDate2Or4(string s, out DateTime d)
+        {
+            var norm = Regex.Replace(s, @"\s*/\s*", "/");
+            string[] fmts = { "dd/MM/yy", "dd/MM/yyyy" };
+            return DateTime.TryParseExact(norm, fmts, CultureInfo.InvariantCulture, DateTimeStyles.None, out d);
+        }
+
+        private static bool IsStrictMoney(string tokenCore /* sin signo */)
+        {
+            var t = NormalizeMoneyToken(tokenCore);
+            return RxStrictAmountCore.IsMatch(t);
+        }
+
+        private static decimal ParseImporte(string token)
+        {
+            var s = NormalizeDashes(token).Trim();
+            bool neg = s.StartsWith("-");
+            s = s.TrimStart('-');
+            if (!IsStrictMoney(s)) throw new FormatException($"Monto (importe) fuera de formato estricto: '{token}'");
+            var val = decimal.Parse(s.Replace(".", "").Replace(",", "."), CultureInfo.InvariantCulture);
+            return neg ? -val : val;
+        }
+
+        private static decimal ParseSaldo(string token)
+        {
+            var s = NormalizeDashes(token).Trim();
+            bool neg = s.EndsWith("-");
+            s = s.TrimEnd('-');
+            if (!IsStrictMoney(s)) throw new FormatException($"Monto (saldo) fuera de formato estricto: '{token}'");
+            var val = decimal.Parse(s.Replace(".", "").Replace(",", "."), CultureInfo.InvariantCulture);
+            return neg ? -val : val;
+        }
+
+        private static string ExtractPageText(string full, int page)
+        {
+            var tag = $"<<PAGE:{page}>>>";
+            var idx = full.IndexOf(tag, StringComparison.Ordinal);
+            if (idx < 0) return string.Empty;
+            var from = idx + tag.Length;
+            var next = full.IndexOf("<<PAGE:", from, StringComparison.Ordinal);
+            return next >= 0 ? full[from..next] : full[from..];
+        }
+
+        private static (DateTime? start, DateTime? end) ExtractPeriodFromPage1(string page1)
+        {
+            var ms = RxAnyDate.Matches(page1);
+            if (ms.Count < 2) return (null, null);
+
+            var parsed = new List<DateTime>();
+            foreach (Match m in ms)
+            {
+                if (TryParseDate2Or4(m.Groups["d"].Value, out var d))
+                    parsed.Add(d);
+            }
+            if (parsed.Count < 2) return (null, null);
+            parsed.Sort();
+            return (parsed[0], parsed[^1]);
+        }
+
+        // Toma closing = $…- ; opening = $… positivo próximo a "Saldos" o, si no, el mayor $ positivo de la portada
+        private static string Trunc(string s, int n) =>
+            string.IsNullOrEmpty(s) ? s : (s.Length <= n ? s : s.Substring(0, n) + " …[truncated]");
+
+        // Helper para limpiar texto para warnings
+        private static string TrimForWarn(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return string.Empty;
+            var cleaned = s.Replace("\n", " ").Replace("\r", " ");
+            cleaned = Regex.Replace(cleaned, @"\s+", " ");
+            return Trunc(cleaned, 180);
+        }
+
+        private static readonly HashSet<string> OrigenStopWords =
+        new(StringComparer.OrdinalIgnoreCase)
+            {
+                "PROPIA", "VARIOS", "HABERES", "ACRED.HABERES", "ACRED. HABERES",
+                "CUENTA ORIGEN", "CUENTA ORIGEN CAJA A", "ORIGEN", "SOBRE SALDOS"
+            };
+
+        private static readonly Regex RxOnlyDigitsLong = new(@"^\s*\d{6,}\s*$", RegexOptions.Compiled);
+        private static readonly Regex RxZerosLong = new(@"^\s*0{6,}\s*$", RegexOptions.Compiled);
+        private static readonly Regex RxCUITLine = new(@"^\s*\d{2}-\d{8}-\d\s*$", RegexOptions.Compiled);
+        private static readonly Regex RxCBULine = new(@"^\s*\d{22}\s*$", RegexOptions.Compiled);
+        private static readonly Regex RxCardLike = new(@"^\s*\d{13,19}\s*$", RegexOptions.Compiled);
+
+        private const decimal EPS = 0.05m; // tolerancia centavos/rounding
+
+        private static bool NearlyEq(decimal a, decimal b, decimal eps = EPS)
+            => Math.Abs(a - b) <= eps;
+
+        private static (decimal fixedAmount, string? reason) ReconcileAmount(
+            decimal parsedAmount,
+            decimal currentBalance,
+            decimal? prevBalance)
+        {
+            if (!prevBalance.HasValue)
+                return (parsedAmount, null);
+
+            var expected = currentBalance - prevBalance.Value;
+
+            // OK tal cual
+            if (NearlyEq(parsedAmount, expected))
+                return (parsedAmount, null);
+
+            // ¿solo error de signo?
+            if (NearlyEq(-parsedAmount, expected))
+                return (-parsedAmount, "flip_sign");
+
+            // Desvío grande (e.g. “402.004.728,00” vs “2.004.728,00”) → forzamos al esperado
+            // Podés afinar los umbrales si querés
+            var bigGap = Math.Abs(parsedAmount - expected) > 10m && Math.Abs(parsedAmount) > 50m;
+            if (bigGap)
+                return (expected, "force_expected");
+
+            // Último recurso: forzar esperado si no cierra
+            return (expected, "force_expected_soft");
+        }
+
 
         public ParseResult Parse(string text, Action<IBankStatementParser.ProgressUpdate>? progress = null)
         {
             var result = new ParseResult
             {
-                Statement = new BankStatement
-                {
-                    Bank = "Banco Galicia",
-                    Accounts = new List<AccountStatement>()
-                },
+                Statement = new BankStatement { Bank = "Banco Galicia", Accounts = new List<AccountStatement>() },
                 Warnings = new List<string>()
             };
 
-            EmitRawFull(result, text);
+            var full = (text ?? string.Empty).Replace("\r\n", "\n");
+            // Instrumentation counters
+            int blocksParsedCount = 0;
+            int blocksSkippedNo2Count = 0;
+            int fallbackUsedCount = 0;
+            int pageCutRetriedCount = 0;
+            int dashTrimmedBeforeMoneyCount = 0;
 
-            progress?.Invoke(new IBankStatementParser.ProgressUpdate("Normalizando", 1, 6));
-            text = NormalizeWhole(text);
 
-            progress?.Invoke(new IBankStatementParser.ProgressUpdate("Detectando cuenta", 2, 6));
-            var accountNumber = DetectAccountNumber(text) ?? "";
-            var account = new AccountStatement { AccountNumber = accountNumber };
+            // 1.a) Unifica espacios alrededor de las barras en dd/MM/yy
+            full = Regex.Replace(
+                full,
+                @"(?<!\d)(\d{1,2})\s*/\s*(\d{1,2})\s*/\s*(\d{2})(?!\d)",
+                "$1/$2/$3",
+                RegexOptions.Compiled);
+
+            // 1.b) Si una fecha aparece “en medio de línea”, forzá salto ANTES
+            full = Regex.Replace(
+                full,
+                @"(?<![\r\n])(?<!^)(?<!\d)(\d{1,2}/\d{1,2}/\d{2})",
+                "\n$1",
+                RegexOptions.Compiled);
+
+            // 1.c) OCR típico: día con dígito duplicado separado "1 1/04/23" -> "11/04/23"
+            full = Regex.Replace(
+                full,
+                @"(?<!\d)(\d)\s+(?=\1/\d{2}/\d{2})",
+                "$1",
+                RegexOptions.Compiled);
+
+            // Auditoría: snapshots
+            var page1 = ExtractPageText(full, 1);
+            var (openingP1, closingP1) = ExtractHeaderBalances(page1);
+
+
+            if (!string.IsNullOrWhiteSpace(page1))
+                result.Warnings.Add("[raw.page1] " + Trunc(page1, 1200));
+            result.Warnings.Add("[raw.sample] " + Trunc(full, 1000));
+
+            // Meta de portada
+            var (pStart, pEnd) = ExtractPeriodFromPage1(page1);
+            var headerDbg = SliceHeaderZone(page1);
+            result.Warnings.Add("[debug.page1_header] " + Trunc(headerDbg, 600));
+
+            var moneyInHeader = RxMoneyHeader.Matches(headerDbg);
+            result.Warnings.Add("[debug.header_moneys] " + string.Join(" | ", moneyInHeader.Select(m => m.Value)));
+
+            // NUEVO: meta de cuenta
+            var (accDigits, cbu, cuit) = ExtractAccountMetaFromPage1(page1);
+            if (!string.IsNullOrEmpty(accDigits)) result.Warnings.Add($"[meta.accountNumberDigits] {accDigits}");
+            if (!string.IsNullOrEmpty(cbu)) result.Warnings.Add($"[meta.cbu] {cbu}");
+            if (!string.IsNullOrEmpty(cuit)) result.Warnings.Add($"[meta.cuit] {cuit}");
+
+            var account = new AccountStatement();
+            if (!string.IsNullOrEmpty(accDigits)) account.AccountNumber = accDigits;
             result.Statement.Accounts.Add(account);
 
-            progress?.Invoke(new IBankStatementParser.ProgressUpdate("Recortando movimientos", 3, 6));
-            var region = ExtractMovementsRegion(text);
-            var anchors = DateAnchorRx.Matches(region).Count;
-            result.Warnings.Add($"[precheck] anclas_fecha={anchors}");
+            // Hallar anclas de fecha por línea (multilínea)
+            var matches = RxDateLineAnchor.Matches(full);
+            result.Warnings.Add($"[debug.blocks_found] {matches.Count}");
 
-            var rawLines = region.Split('\n');
-            var txs = account.Transactions;
-            DateTime? currentDate = null;
-            var fmts = new[] { "dd/MM/yyyy", "dd/MM/yy" };
+            result.Warnings.Add("[debug.date_lines] " +
+            string.Join(" | ", matches.Select(m => Regex.Replace(m.Groups["d"].Value, @"\s*", ""))));
 
-            progress?.Invoke(new IBankStatementParser.ProgressUpdate("Parseando líneas", 4, 6));
-            int i = 0, total = rawLines.Length, produced = 0, moneyRows = 0;
 
-            while (i < total)
+            // Si no hay fechas, devolvemos pronto con warning
+            if (matches.Count == 0)
             {
-                if ((i & 31) == 0) progress?.Invoke(new IBankStatementParser.ProgressUpdate("Parseando líneas", i, total));
-
-                var raw = rawLines[i] ?? string.Empty;
-                var line = NormalizeLine(raw);
-
-                if (line.Length == 0 || HeaderRx.IsMatch(line) || MonthLineRx.IsMatch(line)) { i++; continue; }
-
-                var mDate = DateAtStartRx.Match(line);
-                if (!mDate.Success) { i++; continue; }
-
-                if (!DateTime.TryParseExact(mDate.Groups[1].Value, fmts, null, DateTimeStyles.None, out var d)) { i++; continue; }
-                currentDate = d;
-
-                var afterDate = line[(mDate.Groups[1].Index + mDate.Groups[1].Length)..].Trim();
-
-                var blockDescParts = new List<string>(8);
-                var allMoney = new List<Match>();
-                string? nextDateRema = null;
-
-                afterDate = NormalizeLine(afterDate);
-                if (afterDate.Length > 0)
+                result.Warnings.Add("No se detectaron líneas con fecha al inicio.");
+                if (pStart.HasValue && pEnd.HasValue)
                 {
-                    var (left, right) = SplitAtInlineDateIfAny(afterDate);
-                    if (!string.IsNullOrWhiteSpace(left))
-                    {
-                        var mm = MoneyRx.Matches(left);
-                        if (mm.Count > 0)
-                        {
-                            var prefix = mm[0].Index > 0 ? left[..mm[0].Index].Trim() : string.Empty;
-                            if (!string.IsNullOrWhiteSpace(prefix)) blockDescParts.Add(prefix);
-                            foreach (Match m in mm) allMoney.Add(m);
-                        }
-                        else blockDescParts.Add(left);
-                    }
-                    if (right != null) nextDateRema = right;
+                    result.Statement.PeriodStart = pStart.Value;
+                    result.Statement.PeriodEnd = pEnd.Value;
                 }
 
-                int j = i + 1;
-                while (j < total && nextDateRema == null)
+                // Opening/Closing: preferir extracción por "$ ..."/"$ ...-" de portada;
+                // si no están, caer a proximidad por fechas del header.
+                account.OpeningBalance = openingP1;
+                account.ClosingBalance = closingP1;
+
+                return result;
+            }
+
+            decimal? prevRunningBalance = openingP1; // si no hay openingP1, se concilia desde la 2ª línea
+
+            // Recorrer bloques [fecha_i .. fecha_{i+1})
+            for (int i = 0; i < matches.Count; i++)
+            {
+                int start = matches[i].Index;
+
+                // 1) Próxima fecha (tope natural)
+                int endNextDate = (i + 1 < matches.Count) ? matches[i + 1].Index : full.Length;
+
+                // 2) (YA NO) cortar por "Total $" ni por "Consolidado ..."
+                //    int totalIdx = full.IndexOf("Total $", start, StringComparison.OrdinalIgnoreCase);
+                //    int consIdx  = full.IndexOf("Consolidado de retención", start, StringComparison.OrdinalIgnoreCase);
+
+                int endCandidate = endNextDate;
+
+                // 3) Intento 1: respetando salto de página si cae antes
+                int nextPageIdx = full.IndexOf("<<PAGE:", start, StringComparison.Ordinal);
+                bool cutByPage = nextPageIdx >= 0 && nextPageIdx < endCandidate;
+
+                string blockLarge = full.Substring(start, (cutByPage ? nextPageIdx : endCandidate) - start);
+
+                // --- NORMALIZAR + buscar montos (intento 1)
+                var normalized = TightenForNumbers(blockLarge);
+                var amts = RxStrictAmount.Matches(normalized);
+
+                // 4) Si no hay 2 montos y el corte fue por página, reintentar sin corte de página
+                if (amts.Count < 2 && cutByPage) { pageCutRetriedCount++; }
+                if (amts.Count < 2 && cutByPage)
                 {
-                    var nl = NormalizeLine(rawLines[j] ?? "");
-                    if (nl.Length == 0) { j++; continue; }
-                    if (HeaderRx.IsMatch(nl) || MonthLineRx.IsMatch(nl)) break;
-                    if (DateAtStartRx.IsMatch(nl)) break;
-
-                    var (left, right) = SplitAtInlineDateIfAny(nl);
-                    var mm2 = MoneyRx.Matches(left);
-                    if (mm2.Count > 0)
-                    {
-                        var pre = mm2[0].Index > 0 ? left[..mm2[0].Index].Trim() : string.Empty;
-                        if (!string.IsNullOrWhiteSpace(pre)) blockDescParts.Add(pre);
-                        foreach (Match m in mm2) allMoney.Add(m);
-                    }
-                    else if (!string.IsNullOrWhiteSpace(left)) blockDescParts.Add(left);
-
-                    if (right != null) { nextDateRema = right; break; }
-                    j++;
+                    blockLarge = full.Substring(start, endCandidate - start);
+                    normalized = TightenForNumbers(blockLarge);
+                    amts = RxStrictAmount.Matches(normalized);
                 }
 
-                if (allMoney.Count >= 2)
+                if (amts.Count < 2)
                 {
-                    var amountM = allMoney[^2];
-                    var balanceM = allMoney[^1];
+                    result.Warnings.Add($"[debug.skipped_no_2_amounts_at] idx={start} text='{TrimForWarn(normalized)}'");
+                    continue;
+                }
+
+                int cutEndNorm = amts[1].Index + amts[1].Length;
+                var blockNormCut = normalized.Substring(0, cutEndNorm);
+
+                // ➜ NUEVO: convertir @@@ a saltos de línea ANTES de limpiar renglones
+                var blockForDesc = blockNormCut.Replace("@@@", "\n");
+
+                // usá blockForDesc (no blockNormCut) para la limpieza de renglones
+                var blockDesc = string.Join("\n",
+                    blockForDesc
+                        .Split('\n')
+                        .Select(StripDelimEnd)
+                        .Where(line =>
+                            !line.TrimStart().StartsWith("<<PAGE:", StringComparison.OrdinalIgnoreCase) &&
+                            !line.TrimStart().StartsWith("Página", StringComparison.OrdinalIgnoreCase) &&
+                            !line.TrimStart().StartsWith("Total $", StringComparison.OrdinalIgnoreCase) &&
+                            line.IndexOf("Consolidado de", StringComparison.OrdinalIgnoreCase) < 0
+                        )
+                ).TrimEnd();
+
+                // Para debug transparente: guardo el crudo original SIN normalizar (tal como vino)
+                var blockRawForDebug = blockLarge.TrimEnd();
+
+                // --- A PARTIR DE ACÁ sigue tu lógica como ya la tenés ---
+                // 1) Fecha, 2) Extraer montos (tomar SOLO los primeros 2),
+                // 3) amount/balance con ToDecimalAllowingSpaces, 4) Tipo, 5) Resto como descripción
+                // ...
+
+                if (string.IsNullOrWhiteSpace(blockDesc)) continue;
+
+                // DEBUG: ver bloque crudo vs normalizado (primeros 5)
+                bool dumpThis =
+                    (i < 5) || (i >= matches.Count - 5);
+
+                if (dumpThis)
+                {
+                    var detectPreview = TightenForNumbers(blockDesc);
+                    result.Warnings.Add($"[debug.block_pre_{i + 1}] " + Trunc(blockDesc.Replace("\n", " "), 300));
+                    result.Warnings.Add($"[debug.block_post_{i + 1}] " + Trunc(detectPreview.Replace("\n", " "), 300));
+                }
+
+                // Fecha del bloque (debe estar al principio)
+                var mDate = RxDateLineAnchor.Match(blockDesc);
+                if (!mDate.Success || mDate.Index != 0) continue;
+                if (!TryParseDateDdMmYy(mDate.Groups["d"].Value, out var date)) continue;
+
+                // --- 2) Montos: tomar SIEMPRE los primeros 2 estrictos y delimitados ---
+                var detect = TightenForNumbers(blockDesc);
+
+                detect = FixInlineMinusBeforeMoney(detect);
+
+                detect = Regex.Replace(detect, @"(?<=\s|^)-\s{0,3}(?=\d)", "-");
+
+                var mDelim = RxMoneyDelimited.Matches(detect);
+
+                var strict = new List<string>(2);
+                foreach (Match m in mDelim)
+                {
+                    var tok = m.Groups[1].Value.Trim();   // el token completo -?N.NNN,dd-?
+                    var core = tok.Trim('-');
+
+
+                    // ignorar $... de portada, por si aparece en algún bloque extraño
+                    int prev = m.Index - 1;
+                    while (prev >= 0 && char.IsWhiteSpace(detect[prev])) prev--;
+
+                    // --- defensa contra "25413-83.351,31" ---
+                    // SOLO si el '-' está PEGADO al token y PEGADO a alfanum a la izquierda
+                    if (m.Index >= 2 && detect[m.Index - 1] == '-' && char.IsLetterOrDigit(detect[m.Index - 2]))
+                    {
+                        result.Warnings.Add("[dash-guard] trimmed hyphen before money near: " +
+                            Trunc(detect.Substring(Math.Max(0, m.Index - 12),
+                            Math.Min(24, detect.Length - Math.Max(0, m.Index - 12))), 60));
+                        tok = tok.TrimStart('-');
+                        dashTrimmedBeforeMoneyCount++;
+                    }
+
+                    if (!IsStrictMoney(core)) continue;
+
+                    strict.Add(tok);
+                    if (strict.Count == 2) break;
+                }
+
+                decimal amount, balance; bool usedFallbackThisBlock = false;
+
+                if (strict.Count >= 2)
+                {
+                    var importeTok = strict[0];
+                    var saldoTok = strict[1];
 
                     try
                     {
-                        var amount = ParseEsMoney(amountM.Value, out var aNeg); if (aNeg) amount = -amount;
-                        var balance = ParseEsMoney(balanceM.Value, out var bNeg); if (bNeg) balance = -balance;
-
-                        var description = CanonicalizeDescription(string.Join(" | ", blockDescParts));
-                        txs.Add(new Transaction
-                        {
-                            Date = currentDate.Value,
-                            Description = string.IsNullOrWhiteSpace(description) ? "Movimiento" : description,
-                            OriginalDescription = string.Join(" | ", blockDescParts),
-                            Amount = amount,
-                            Type = amount < 0 ? "debit" : "credit",
-                            Balance = balance
-                        });
-                        produced++; moneyRows++;
+                        amount = ParseImporte(importeTok); // usa tu lógica actual
+                        balance = ParseSaldo(saldoTok);
                     }
-                    catch { /* descartar bloque inválido */ }
+                    catch
+                    {
+                        // FALLBACK: dos últimos montos del bloque CRUDO (no normalizado)
+                        var ab = TryParseAmountAndBalance(blockRawForDebug);
+                        if (ab == null)
+                        {
+                            if (dumpThis)
+                                result.Warnings.Add($"[debug.skipped_block_lt2_amounts] text='{Trunc(detect.Replace("\n", " "), 300)}'");
+                            continue;
+                        }
+                        (amount, balance) = ab.Value; usedFallbackThisBlock = true; fallbackUsedCount++;
+                    }
                 }
-
-                i = j;
-
-                if (nextDateRema != null)
+                else
                 {
-                    var list = rawLines.ToList();
-                    list.Insert(i, nextDateRema);
-                    rawLines = list.ToArray();
-                    total = rawLines.Length;
+                    // FALLBACK directo si no llegamos a 2 estrictos
+                    var ab = TryParseAmountAndBalance(blockRawForDebug);
+                    if (ab == null)
+                    {
+                        if (dumpThis)
+                            result.Warnings.Add($"[debug.skipped_block_lt2_amounts] text='{Trunc(detect.Replace("\n", " "), 300)}'");
+                        continue;
+                    }
+                    (amount, balance) = ab.Value; usedFallbackThisBlock = true; fallbackUsedCount++;
                 }
+                
+                // --- Conciliación línea a línea con saldos ---
+                var parsedAmount = amount;
+                var (fixedAmount, reconReason) = ReconcileAmount(parsedAmount, balance, prevRunningBalance);
+
+                if (reconReason is not null)
+                {
+                    // log de auditoría minimal
+                    result.Warnings.Add(
+                        $"[recon] i={i + 1} prev={(prevRunningBalance?.ToString("0.00") ?? "null")} " +
+                        $"bal={balance:0.00} parsedAmt={parsedAmount:0.00} " +
+                        $"=> fixedAmt={fixedAmount:0.00} reason={reconReason}"
+                    );
+                    amount = fixedAmount; // aplicar corrección
+                }
+
+                // actualizar saldo anterior para la próxima línea
+                prevRunningBalance = balance;
+
+                account.Transactions ??= new List<Transaction>();
+
+                // 1) Descripción principal: desde fin de la fecha hasta el primer importe
+                int firstAmtIdx = mDelim[0].Index;
+                string mainDetect = detect.Substring(mDate.Length, Math.Max(0, firstAmtIdx - mDate.Length)).Trim();
+
+                // Después (pasale el bloque crudo completo con todas las líneas):
+                string displayDesc = DescriptionBuilder.BuildSmart(mainDetect ?? detect, blockRawForDebug ?? blockDesc);
+
+                // Fallbacks
+                if (string.IsNullOrWhiteSpace(displayDesc))
+                    displayDesc = DescriptionBuilder.Build(blockRawForDebug ?? blockDesc);
+                if (string.IsNullOrWhiteSpace(displayDesc))
+                    displayDesc = PostClean(mainDetect ?? detect);
+
+                account.Transactions.Add(new Transaction
+                {
+                    Date = date,
+                    Description = displayDesc,
+                    OriginalDescription = blockDesc,
+                    Amount = amount,
+                    Type = amount < 0 ? "debit" : "credit",
+                    Balance = balance,
+                    Category = null,
+                    Subcategory = null,
+                    CategorySource = null,
+                    CategoryRuleId = null
+                });
+                // Instrumentation: per-block JSON
+                try
+                {
+                    var blkLog = new
+                    {
+                        i = i + 1,
+                        date = date.ToString("yyyy-MM-dd"),
+                        cutByPage,
+                        strictCount = strict.Count,
+                        usedFallback = usedFallbackThisBlock,
+                        amountToken = (strict.Count > 0 ? strict[0] : null),
+                        balanceToken = (strict.Count > 1 ? strict[1] : null),
+                        amount,
+                        balance,
+                        dashTrimmedBeforeMoneyCount,
+                    };
+                    result.Warnings.Add("[json.block] " + JsonSerializer.Serialize(blkLog));
+                }
+                catch { /* swallow instrumentation errors */ }
+
+                blocksParsedCount++;
+
             }
 
-            var lastBalance = txs.Count > 0 ? txs[^1].Balance : (decimal?)null;
-
-            // Usa el método "smart" para saldos
-            var (openingFromHeader, closingFromHeader) = TryExtractBalancesSmart(text, lastBalance);
-
-            // Asignación con fallbacks
-            decimal? closing = closingFromHeader ?? lastBalance;
-            decimal? opening = openingFromHeader;
-
-            // Si apertura no vino del header, inferila desde el primer movimiento
-            if (opening is null && txs.Count > 0)
-                opening = txs[0].Balance - txs[0].Amount;
-
-            // Guardo en la cuenta
-            account.OpeningBalance = opening;
-            account.ClosingBalance = closing;
-
-            // === NUEVO: reconciliar montos con running balance ===
-            ReconcileAmountsWithRunningBalance(account, result);
-            // === /NUEVO ===
-
-            // (Sanity) Validar que opening + suma(amounts) ~= closing
-            if (opening is not null && closing is not null && txs.Count > 0)
+            // Periodo (preferir portada)
+            var txs = account.Transactions ?? new List<Transaction>();
+            if (pStart.HasValue && pEnd.HasValue)
             {
-                var net = txs.Sum(t => t.Amount);
-                if (Math.Abs((opening.Value + net) - closing.Value) > 0.02m)
-                    result.Warnings.Add($"[balances] Inconsistencia: opening+net != closing (Δ={(opening.Value + net - closing.Value):0.00})");
+                result.Statement.PeriodStart = pStart.Value;
+                result.Statement.PeriodEnd = pEnd.Value;
             }
-
-            progress?.Invoke(new IBankStatementParser.ProgressUpdate("Armando cabecera", 5, 6));
-            if (txs.Count > 0)
+            else if (txs.Count > 0)
             {
                 result.Statement.PeriodStart = txs.Min(t => t.Date);
                 result.Statement.PeriodEnd = txs.Max(t => t.Date);
             }
 
-            if (DIAGNOSTIC)
+            // Opening/Closing: NO pisar si ya están; preferir portada $... / $...- y
+            // recién si faltan, usar la proximidad del header.
+            if (openingP1.HasValue) account.OpeningBalance = openingP1.Value;
+            if (closingP1.HasValue) account.ClosingBalance = closingP1.Value;
+
+
+            // Fallback si faltan
+            if (!account.OpeningBalance.HasValue && txs.Count > 0)
+                account.OpeningBalance = txs[0].Balance - txs[0].Amount;
+            if (!account.ClosingBalance.HasValue && txs.Count > 0)
+                account.ClosingBalance = txs[^1].Balance;
+
+            // Si no se extrajo nada, mostrar previews de los primeros bloques para debug
+            if (txs.Count == 0 && matches.Count > 0)
             {
-                result.Warnings.Add($"[diag] lines={rawLines.Length}, moneyRows={moneyRows}, parsed={produced}, range={result.Statement.PeriodStart:yyyy-MM-dd}->{result.Statement.PeriodEnd:yyyy-MM-dd}");
-                if (opening.HasValue && closing.HasValue)
-                    result.Warnings.Add($"[balances] opening={opening.Value}, closing={closing.Value}");
+                for (int k = 0; k < Math.Min(matches.Count, 3); k++)
+                {
+                    int s = matches[k].Index;
+                    int e = (k + 1 < matches.Count) ? matches[k + 1].Index : full.Length;
+                    var blk = full.Substring(s, Math.Min(220, e - s)).Replace("\n", " ");
+                    result.Warnings.Add($"[debug.block_preview_{k + 1}] {Trunc(blk, 220)}");
+                }
             }
 
-            progress?.Invoke(new IBankStatementParser.ProgressUpdate("Listo", 6, 6));
+            // Chequeo suave de balances
+            if (txs.Count > 0 && account.OpeningBalance.HasValue && account.ClosingBalance.HasValue)
+            {
+                var net = txs.Sum(t => t.Amount);
+                var delta = account.OpeningBalance.Value + net - account.ClosingBalance.Value;
+                if (Math.Abs(delta) > 0.02m)
+                    result.Warnings.Add($"[balances] opening+Σ(amount) != closing (Δ={delta:0.00})");
+            }
+
+
+            // === Instrumentation summary ===
+            result.Warnings.Add($"[summary.blocks] total={matches.Count} parsed={blocksParsedCount} skippedNo2={blocksSkippedNo2Count} fallbackUsed={fallbackUsedCount} pageCutRetried={pageCutRetriedCount} dashTrimmed={dashTrimmedBeforeMoneyCount}");
             return result;
         }
     }
