@@ -25,6 +25,8 @@ using AccountCore.Services.Auth.Interfaces;
 using AccountCore.Services.Auth.Repositories;
 using AccountCore.DTO.Auth.Configuration;
 using AccountCore.API.Middleware;
+using Microsoft.Extensions.Options;
+
 
 //
 // ---- Fix GUID legacy para UserCategoryRule (Mongo driver) ----
@@ -145,7 +147,11 @@ builder.Services.AddCors(p => p.AddPolicy("corsapp", policy =>
 var mapperConfig = new MapperConfiguration(cfg => cfg.AddProfile(new MappingProfile()));
 builder.Services.AddSingleton(mapperConfig.CreateMapper());
 
+builder.Services.Configure<ParserSettings>(builder.Configuration.GetSection("Parser"));
+
 var app = builder.Build();
+
+app.MapGet("/debug/parser-config", (IOptions<ParserSettings> opts) => Results.Json(opts.Value));
 
 // Middleware
 app.UseCors("corsapp");
@@ -157,7 +163,7 @@ app.UseSwagger();
 app.UseSwaggerUI();
 
 // Configurar Swagger UI para mostrar endpoints de testing
-if (app.Environment.IsDevelopment() || 
+if (app.Environment.IsDevelopment() ||
     app.Configuration.GetValue<bool>("Testing:EnableTestEndpoints"))
 {
     app.UseSwaggerUI(c =>
@@ -180,3 +186,4 @@ app.UseAuthorization();
 
 app.MapControllers();
 app.Run();
+
