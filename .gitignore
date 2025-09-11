@@ -208,5 +208,4 @@ Fuentes/Cardinal.EDR.API/files
 .vs
 *.v2
 *.dll
-/GiganceServices.Tests/Properties/launchSettings.json
 .env
