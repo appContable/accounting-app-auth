@@ -10,11 +10,12 @@ using System.Text;
 namespace AccountCore.API.Controllers
 {
     /// <summary>
-    /// Endpoints de testing para desarrollo - NO requieren autenticación
+    /// Endpoints de testing para desarrollo - DESHABILITADOS EN PRODUCCIÓN
+    /// Estos endpoints están comentados para evitar exposición en producción
     /// </summary>
-    [ApiController]
-    [Route("api/[controller]")]
-    [AllowAnonymous]
+    // [ApiController]
+    // [Route("api/[controller]")]
+    // [AllowAnonymous]
     public class TestController : ControllerBase
     {
         private readonly IPdfParsingService _parserService;
@@ -28,16 +29,23 @@ namespace AccountCore.API.Controllers
             _categorizationService = categorizationService;
         }
 
+        // NOTA: Todos los endpoints de test están deshabilitados para producción
+        // Para habilitar en desarrollo, descomentar los atributos [HttpPost], [HttpGet], etc.
+
         /// <summary>
         /// Parsea PDF - si se especifica 'bank' usa el parser, sino devuelve texto raw
         /// </summary>
-        [HttpPost("parse-pdf")]
-        [Consumes("multipart/form-data")]
-        [SwaggerOperation(Summary = "Parsea PDF con parser específico o devuelve texto raw (testing only)")]
-        [SwaggerResponse(StatusCodes.Status200OK, "Resultado del parseo o texto raw del PDF")]
-        [SwaggerResponse(StatusCodes.Status400BadRequest, "Solicitud inválida")]
+        // [HttpPost("parse-pdf")]
+        // [Consumes("multipart/form-data")]
+        // [SwaggerOperation(Summary = "Parsea PDF con parser específico o devuelve texto raw (testing only)")]
+        // [SwaggerResponse(StatusCodes.Status200OK, "Resultado del parseo o texto raw del PDF")]
+        // [SwaggerResponse(StatusCodes.Status400BadRequest, "Solicitud inválida")]
         public async Task<IActionResult> ParsePdf([FromForm] UploadPdfRequest req, CancellationToken ct)
         {
+            // ENDPOINT DESHABILITADO PARA PRODUCCIÓN
+            return StatusCode(StatusCodes.Status501NotImplemented, "Test endpoints are disabled in production");
+            
+            /*
             if (req.File is null || req.File.Length == 0)
                 return BadRequest("Archivo no válido.");
 
@@ -89,18 +97,23 @@ namespace AccountCore.API.Controllers
             {
                 return BadRequest($"Error procesando PDF: {ex.Message}");
             }
+            */
         }
 
         /// <summary>
         /// Parsea un extracto PDF completo sin autenticación (solo para testing)
         /// </summary>
-        [HttpPost("parse-pdf-full")]
-        [Consumes("multipart/form-data")]
-        [SwaggerOperation(Summary = "Parsea PDF completo sin autenticación (testing only)")]
-        [SwaggerResponse(StatusCodes.Status200OK, "Resultado del parseo completo", typeof(ParseResult))]
-        [SwaggerResponse(StatusCodes.Status400BadRequest, "Solicitud inválida")]
+        // [HttpPost("parse-pdf-full")]
+        // [Consumes("multipart/form-data")]
+        // [SwaggerOperation(Summary = "Parsea PDF completo sin autenticación (testing only)")]
+        // [SwaggerResponse(StatusCodes.Status200OK, "Resultado del parseo completo", typeof(ParseResult))]
+        // [SwaggerResponse(StatusCodes.Status400BadRequest, "Solicitud inválida")]
         public async Task<IActionResult> ParsePdfFull([FromForm] UploadPdfRequest req, CancellationToken ct)
         {
+            // ENDPOINT DESHABILITADO PARA PRODUCCIÓN
+            return StatusCode(StatusCodes.Status501NotImplemented, "Test endpoints are disabled in production");
+            
+            /*
             if (req.File is null || req.File.Length == 0)
                 return BadRequest("Archivo no válido.");
             if (string.IsNullOrWhiteSpace(req.Bank))
@@ -126,6 +139,7 @@ namespace AccountCore.API.Controllers
             {
                 return BadRequest($"Error procesando PDF: {ex.Message}");
             }
+            */
         }
 
         /// <summary>
@@ -154,11 +168,15 @@ namespace AccountCore.API.Controllers
         /// <summary>
         /// Prueba las reglas de categorización con texto de ejemplo
         /// </summary>
-        [HttpPost("test-categorization")]
-        [SwaggerOperation(Summary = "Prueba categorización con datos de ejemplo")]
-        [SwaggerResponse(StatusCodes.Status200OK, "Resultado de categorización")]
+        // [HttpPost("test-categorization")]
+        // [SwaggerOperation(Summary = "Prueba categorización con datos de ejemplo")]
+        // [SwaggerResponse(StatusCodes.Status200OK, "Resultado de categorización")]
         public async Task<IActionResult> TestCategorization([FromBody] TestCategorizationRequest request)
         {
+            // ENDPOINT DESHABILITADO PARA PRODUCCIÓN
+            return StatusCode(StatusCodes.Status501NotImplemented, "Test endpoints are disabled in production");
+            
+            /*
             if (string.IsNullOrWhiteSpace(request.Bank) || string.IsNullOrWhiteSpace(request.Description))
                 return BadRequest("Bank y Description son requeridos.");
 
@@ -199,15 +217,20 @@ namespace AccountCore.API.Controllers
                 CategorySource = testResult.Statement.Accounts[0].Transactions[0].CategorySource,
                 AppliedAmount = testResult.Statement.Accounts[0].Transactions[0].Amount
             });
+            */
         }
 
         /// <summary>
         /// Endpoint de health check
         /// </summary>
-        [HttpGet("health")]
-        [SwaggerOperation(Summary = "Health check del servicio")]
+        // [HttpGet("health")]
+        // [SwaggerOperation(Summary = "Health check del servicio")]
         public IActionResult Health()
         {
+            // ENDPOINT DESHABILITADO PARA PRODUCCIÓN
+            return StatusCode(StatusCodes.Status501NotImplemented, "Test endpoints are disabled in production");
+            
+            /*
             var version = HttpContext.RequestServices
                 .GetRequiredService<IConfiguration>()["Api:Version"] ?? "1.0.0";
             
@@ -219,6 +242,7 @@ namespace AccountCore.API.Controllers
                 BuildNumber = version.Split('.').LastOrDefault(),
                 Environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Unknown"
             });
+            */
         }
     }
 
