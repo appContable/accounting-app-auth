@@ -3,7 +3,6 @@ using System.Text.RegularExpressions;
 using System.Text.Json;
 using AccountCore.DAL.Parser.Models;
 using AccountCore.Services.Parser.Interfaces;
-using Microsoft.AspNetCore.Http;
 
 namespace AccountCore.Services.Parser.Parsers
 {

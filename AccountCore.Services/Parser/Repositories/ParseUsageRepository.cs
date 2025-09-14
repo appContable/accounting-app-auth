@@ -9,9 +9,9 @@ namespace AccountCore.Services.Parser.Repositories
     {
         private readonly IMongoCollection<ParseUsage> _collection;
 
-        public ParseUsageRepository(IMongoDatabase database)
+        public ParseUsageRepository(IMongoDatabase db)
         {
-            _collection = database.GetCollection<ParseUsage>("usage");
+            _collection = db.GetCollection<ParseUsage>("Usage");
         }
 
         public async Task<List<ParseUsage>> GetAllAsync()
@@ -20,11 +20,11 @@ namespace AccountCore.Services.Parser.Repositories
         public async Task<ParseUsage?> GetByIdAsync(ObjectId id)
             => await _collection.Find(u => u.Id == id).FirstOrDefaultAsync();
 
-        public async Task CreateAsync(ParseUsage usage)
-            => await _collection.InsertOneAsync(usage);
+        public async Task CreateAsync(ParseUsage Usage)
+            => await _collection.InsertOneAsync(Usage);
 
-        public async Task UpdateAsync(ParseUsage usage)
-            => await _collection.ReplaceOneAsync(u => u.Id == usage.Id, usage);
+        public async Task UpdateAsync(ParseUsage Usage)
+            => await _collection.ReplaceOneAsync(u => u.Id == Usage.Id, Usage);
 
         public async Task DeleteAsync(ObjectId id)
             => await _collection.DeleteOneAsync(u => u.Id == id);
