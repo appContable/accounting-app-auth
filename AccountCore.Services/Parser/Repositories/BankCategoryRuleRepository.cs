@@ -10,7 +10,7 @@ namespace AccountCore.Services.Parser.Repositories
 
         public BankCategoryRuleRepository(IMongoDatabase db)
         {
-            _col = db.GetCollection<BankCategoryRule>("bank_category_rules");
+            _col = db.GetCollection<BankCategoryRule>("BankCategoryRules");
 
             // Índice ÚNICO por (Bank, Pattern) sólo para docs donde ambos existen.
             // Evitamos $ne "" porque no está soportado en partial indexes de tu cluster.

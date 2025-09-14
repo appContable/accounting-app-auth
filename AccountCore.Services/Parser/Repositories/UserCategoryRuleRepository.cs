@@ -10,7 +10,7 @@ namespace AccountCore.Services.Parser.Repositories
 
         public UserCategoryRuleRepository(IMongoDatabase db)
         {
-            _col = db.GetCollection<UserCategoryRule>("userCategoryRules");
+            _col = db.GetCollection<UserCategoryRule>("UserCategoryRules");
         }
 
         // AccountCore.Services/Parser/Repositories/UserCategoryRuleRepository.cs
