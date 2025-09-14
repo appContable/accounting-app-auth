@@ -49,9 +49,6 @@ namespace AccountCore.Services.Parser
 
         public async Task<ParseResult?> ParseAsync(Stream pdfStream, string bank, string userId, CancellationToken ct)
         {
-            // === Instrumentation: assign a runId and (optionally) dump the pre-parsed text ===
-            var _runId = Guid.NewGuid().ToString("N");
-
             // límite mensual
             var now = DateTime.UtcNow;
             var monthStart = new DateTime(now.Year, now.Month, 1);
@@ -66,50 +63,11 @@ namespace AccountCore.Services.Parser
             using (var doc = PdfDocument.Open(ms))
             {
                 fullText = ExtractPagesForParser(doc, ct);
-
-                string? dumpDir = Environment.GetEnvironmentVariable("PARSER_DUMP_DIR");
-                if (!string.IsNullOrWhiteSpace(dumpDir))
-                {
-                    try
-                    {
-                        Directory.CreateDirectory(dumpDir);
-                        var prePath = Path.Combine(dumpDir, $"{DateTime.UtcNow:yyyyMMdd_HHmmssfff}_{_runId}_pre.txt");
-                        File.WriteAllText(prePath, fullText);
-                    }
-                    catch { /* ignore dump errors */ }
-                }
-
             }
 
             if (!_parsers.TryGetValue(bank, out var parser)) return null;
 
             var result = parser.Parse(fullText);
-            if (result != null)
-            {
-                try
-                {
-                    result.Warnings ??= new List<string>();
-                    result.Warnings.Insert(0, $"[run] id={_runId} bank={bank} user={userId} at={DateTime.UtcNow:o} len={fullText?.Length ?? 0}");
-                    var head = fullText ?? string.Empty;
-                    if (!string.IsNullOrEmpty(head))
-                    {
-                        var preview = head.Length <= 1200 ? head : head.Substring(0, 1200) + " …[truncated]";
-                        result.Warnings.Insert(1, "[fulltext.head] " + head.Replace("\r", " ").Replace("\n", " \\n "));
-                    }
-
-                    string? dumpDir2 = Environment.GetEnvironmentVariable("PARSER_DUMP_DIR");
-                    if (!string.IsNullOrWhiteSpace(dumpDir2))
-                    {
-                        try
-                        {
-                            var warnPath = Path.Combine(dumpDir2, $"{DateTime.UtcNow:yyyyMMdd_HHmmssfff}_{_runId}_warnings.log");
-                            File.WriteAllLines(warnPath, result.Warnings);
-                        }
-                        catch { /* ignore */ }
-                    }
-                }
-                catch { /* ignore warn init errors */ }
-            }
 
             if (result != null)
             {
@@ -121,13 +79,6 @@ namespace AccountCore.Services.Parser
                 });
             }
 
-            if (_enableDump && !string.IsNullOrWhiteSpace(_dumpDir))
-            {
-                Directory.CreateDirectory(_dumpDir);
-                var prePath = Path.Combine(_dumpDir, $"{DateTime.UtcNow:yyyyMMdd_HHmmssfff}_{_runId}_pre.txt");
-                File.WriteAllText(prePath, fullText);
-                // idem para warnings.log
-            }
             return result;
         }
 

@@ -15,16 +15,8 @@ namespace AccountCore.Services.Parser.Parsers
     /// </summary>
     public class SupervielleStatementParser : IBankStatementParser
     {
-        // ===== Config de diagnóstico (podés bajar el ruido desactivando RAW_FULL) =====
-        private static readonly bool DIAGNOSTIC   = true;
-        private static readonly bool RAW_FULL     = true;   // true: loguea el RAW completo, chunked
-        private const int RAW_CHUNK_SIZE = 1600;            // tamaño de chunk para [raw-full #n]
-        private const int RAW_MAX_CHUNKS = 999;             // sin límite práctico al iniciar
-
-        // Marcadores que vienen del PdfParserService
-        // (no son obligatorios, pero nos sirven cuando luego partamos por páginas/filas)
-        private const string LINE_DELIM = "@@@";
-        private const string PAGE_FMT   = "<<PAGE:{0}>>>";
+        private static readonly bool DIAGNOSTIC = false;
+        private static readonly bool DIAG_RAW_FULL = false;
 
         private Action<IBankStatementParser.ProgressUpdate>? _progress;
         private void Report(string stage, int current, int total)
@@ -40,15 +32,15 @@ namespace AccountCore.Services.Parser.Parsers
 
         private static void EmitRawFull(ParseResult result, string raw)
         {
-            if (!RAW_FULL) return;
-            var txt = (raw ?? "").Replace("\r\n", "\n").Replace('\r', '\n');
-            int n = 0;
-            foreach (var c in Chunk(txt, RAW_CHUNK_SIZE))
-            {
-                result.Warnings.Add($"[raw-full #{++n}] {c}");
-                if (n >= RAW_MAX_CHUNKS) break;
-            }
-            result.Warnings.Add($"[raw-full] total_chunks={n}, total_chars={txt.Length}");
+            // if (!RAW_FULL) return;
+            // var txt = (raw ?? "").Replace("\r\n", "\n").Replace('\r', '\n');
+            // int n = 0;
+            // foreach (var c in Chunk(txt, RAW_CHUNK_SIZE))
+            //{
+            //    result.Warnings.Add($"[raw-full #{++n}] {c}");
+            //     if (n >= RAW_MAX_CHUNKS) break;
+            // }
+            //result.Warnings.Add($"[raw-full] total_chunks={n}, total_chars={txt.Length}");
         }
 
         // Normalización “generalista” (no hace suposiciones de Galicia)
@@ -81,7 +73,7 @@ namespace AccountCore.Services.Parser.Parsers
         {
             // FUTURO: detectar “anclas” de cuenta (e.g., “NUMERO DE CUENTA …”, “CBU …”, headers seccionales).
             // Por ahora devolvemos todo como un único bloque, sin identificar cuentas.
-            return new List<(string, string)>{ ("(unknown)", t) };
+            return new List<(string, string)> { ("(unknown)", t) };
         }
 
         // Región de movimientos de cada cuenta (por ahora, passthrough)
@@ -106,7 +98,7 @@ namespace AccountCore.Services.Parser.Parsers
             if (!all.Any()) return;
 
             result.Statement.PeriodStart = all.Min(t => t.Date);
-            result.Statement.PeriodEnd   = all.Max(t => t.Date);
+            result.Statement.PeriodEnd = all.Max(t => t.Date);
         }
 
         // ==========================
@@ -154,7 +146,7 @@ namespace AccountCore.Services.Parser.Parsers
                 var account = new AccountStatement
                 {
                     AccountNumber = accountKey,  // En el futuro: “22-0458… (ARS)” o similar
-                    Transactions  = new List<Transaction>(),
+                    Transactions = new List<Transaction>(),
                     OpeningBalance = null,
                     ClosingBalance = null,
                     Currency = "ARS"
