@@ -42,7 +42,7 @@ namespace AccountCore.Services.Parser
                 ((Guid?)null, r.Pattern, r.PatternType, r.Category, r.Subcategory, r.Priority, "BankRule")));
 
             compiled.AddRange(userRules.Select(r =>
-                (r.Id == Guid.Empty ? (Guid?)null : r.Id, r.Pattern, r.PatternType, r.Category, r.Subcategory, r.Priority, "UserLearned")));
+                (r.Id == Guid.Empty ? (Guid?)null : r.Id, r.Pattern, r.PatternType, r.Category, r.Subcategory, r.Priority, "UserRule")));
 
             var ordered = compiled.OrderBy(x => x.pri).ToList();
 
