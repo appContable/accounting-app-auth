@@ -147,11 +147,7 @@ builder.Services.AddCors(p => p.AddPolicy("corsapp", policy =>
 var mapperConfig = new MapperConfiguration(cfg => cfg.AddProfile(new MappingProfile()));
 builder.Services.AddSingleton(mapperConfig.CreateMapper());
 
-builder.Services.Configure<ParserSettings>(builder.Configuration.GetSection("Parser"));
-
 var app = builder.Build();
-
-app.MapGet("/debug/parser-config", (IOptions<ParserSettings> opts) => Results.Json(opts.Value));
 
 // Middleware
 app.UseCors("corsapp");
@@ -161,19 +157,6 @@ app.UseMiddleware<RateLimitingMiddleware>();
 
 app.UseSwagger();
 app.UseSwaggerUI();
-
-// Configurar Swagger UI para mostrar endpoints de testing
-if (app.Environment.IsDevelopment() ||
-    app.Configuration.GetValue<bool>("Testing:EnableTestEndpoints"))
-{
-    app.UseSwaggerUI(c =>
-    {
-        c.SwaggerEndpoint("/swagger/v1/swagger.json", "AccountCore API v1");
-        c.DisplayRequestDuration();
-        c.EnableTryItOutByDefault();
-        c.DocExpansion(Swashbuckle.AspNetCore.SwaggerUI.DocExpansion.List);
-    });
-}
 
 var httpsPort = builder.Configuration.GetValue<int?>("HttpsPort");
 if (httpsPort.HasValue)
@@ -186,4 +169,3 @@ app.UseAuthorization();
 
 app.MapControllers();
 app.Run();
-

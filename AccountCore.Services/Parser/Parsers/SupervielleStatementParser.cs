@@ -27,6 +27,7 @@ namespace AccountCore.Services.Parser.Parsers
         // Delimitadores del servicio
         private const string LINE_DELIM = "@@@";
 
+
         // ===== Regex =====
         private static readonly Regex RxPeriodo = new(
             @"RESUMEN\s+DE\s+CUENTA\s+DESDE\s+(\d{2}/\d{2}/\d{2})\s+HASTA\s+(\d{2}/\d{2}/\d{2})",
@@ -86,15 +87,15 @@ namespace AccountCore.Services.Parser.Parsers
 
         private static void EmitRawFull(ParseResult result, string raw)
         {
-            if (!RAW_FULL) return;
-            var txt = (raw ?? "").Replace("\r\n", "\n").Replace('\r', '\n');
-            int n = 0;
-            foreach (var c in Chunk(txt, RAW_CHUNK_SIZE))
-            {
-                result.Warnings.Add($"[raw-full #{++n}] {c}");
-                if (n >= RAW_MAX_CHUNKS) break;
-            }
-            result.Warnings.Add($"[raw-full] total_chunks={n}, total_chars={txt.Length}");
+            // if (!RAW_FULL) return;
+            // var txt = (raw ?? "").Replace("\r\n", "\n").Replace('\r', '\n');
+            // int n = 0;
+            // foreach (var c in Chunk(txt, RAW_CHUNK_SIZE))
+            //{
+            //    result.Warnings.Add($"[raw-full #{++n}] {c}");
+            //     if (n >= RAW_MAX_CHUNKS) break;
+            // }
+            //result.Warnings.Add($"[raw-full] total_chunks={n}, total_chars={txt.Length}");
         }
 
         private static string NormalizeWhole(string t)
