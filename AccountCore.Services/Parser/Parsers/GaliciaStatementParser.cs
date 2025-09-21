@@ -23,14 +23,13 @@ namespace AccountCore.Services.Parser.Parsers
     /// - Se marca Transaction.Suspicious y se propone Transaction.SuggestedAmount (= balance - prevBalance) cuando no cierra.
     /// - Heurísticas suaves de “consistencia semántica” (pistas de crédito/débito en la descripción).
     /// </summary>
+    
     public class GaliciaStatementParser : IBankStatementParser
     {
         // ===== Patrones estrictos =====
         private static readonly Regex RxDateLineAnchor =
             new(@"(?m)^\s*(?<d>\d(?:\s?\d)\s*/\s*\d(?:\s?\d)\s*/\s*\d(?:\s?\d))\b", RegexOptions.Compiled);
 
-        private const string MoneyCore = @"\d{1,3}(?:\.\d{3}){0,6},\d{2}";
-        private static readonly Regex RxMoneyStrict = new($@"^(?:{MoneyCore})$", RegexOptions.Compiled);
 
         // Acepta: 1.234,56  | -1.234,56  | 1.234,56-
         private static readonly Regex RxStrictAmount = new(
@@ -97,17 +96,6 @@ namespace AccountCore.Services.Parser.Parsers
             @"(?<![\p{L}\p{Nd}])\s*(-?\s*(?:\d{1,3}(?:\s?\.\s?\d{3})*),\s?\d{2}-?)\s*(?![\p{L}\p{Nd}])",
             RegexOptions.Compiled | RegexOptions.CultureInvariant
         );
-
-        private static readonly Regex RxLeadingDate =
-            new(@"(?m)^\s*\d{1,2}\s*/\s*\d{1,2}\s*/\s*\d{2}\s*", RegexOptions.Compiled);
-
-        private static readonly Regex RxMoneyLooseDelimited = new(
-            @"(?<![\p{L}\p{Nd}])\$?\s*-?\d{1,3}(?:\.\s*\d{3}){0,4},\s*\d\s*\d-?(?![\p{L}\p{Nd}])",
-            RegexOptions.Compiled);
-
-        private static readonly Regex RxMonthYearLine = new(
-            @"(?mi)^\s*(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\s+\d{4}\s*$",
-            RegexOptions.Compiled);
 
         private static readonly Regex RxHeaderStart = new(
             @"Datos\s+de\s+la\s+cuenta",
@@ -277,12 +265,9 @@ namespace AccountCore.Services.Parser.Parsers
         private static readonly Regex RxAllDigitsish = new(@"^[\d\s.\-]+$", RegexOptions.Compiled);
         private static readonly Regex RxCuit = new(@"\b\d{2}-\d{7,8}-\d\b", RegexOptions.Compiled);
         private static readonly Regex RxLongId = new(@"\b\d{10,}\b", RegexOptions.Compiled);
-        private static readonly string[] DropTokens = { "PROPIA", "VARIOS", "CUENTA ORIGEN" };
-
         private static readonly Regex RxLongDigits = new(@"\b\d{10,}\b", RegexOptions.Compiled);
         private static readonly Regex RxMostlyDigits = new(@"^\s*[\d\s\.\-]+$", RegexOptions.Compiled);
         private static readonly Regex RxCodey = new(@"^[A-Z]{2,}\d{3,}$", RegexOptions.Compiled);
-        private static readonly Regex RxStrayMinusDigit = new(@"(?<=\s)-\d{1,3}(?=\s|$)", RegexOptions.Compiled);
 
         private static readonly string[] OriginKeepHints = new[] {
             "HABERES","ACRED.HABERES",
@@ -294,20 +279,6 @@ namespace AccountCore.Services.Parser.Parsers
             "BANCO","SANTANDER","NUEVO BANCO",
             "MERCANTIL","HONORARIOS"
         };
-
-        private static bool ShouldKeepOriginLine(string s)
-        {
-            var t = s.Trim();
-            if (t.Length == 0) return false;
-            if (RxAnyAmount.IsMatch(t)) return false;
-            if (RxCuit.IsMatch(t)) return false;
-            if (RxLongDigits.IsMatch(t)) return false;
-            if (RxMostlyDigits.IsMatch(t)) return false;
-            if (RxCodey.IsMatch(t)) return false;
-            if (t.Contains("0000000000")) return false;
-            return OriginKeepHints.Any(h => t.IndexOf(h, StringComparison.OrdinalIgnoreCase) >= 0)
-                   || t.Split(' ').Count(w => w.Length > 1) >= 1;
-        }
 
         private static string PostClean(string s)
         {
@@ -339,49 +310,6 @@ namespace AccountCore.Services.Parser.Parsers
                           || line.Contains("CLASE", StringComparison.OrdinalIgnoreCase)
                           || line.Contains("PREMIUM", StringComparison.OrdinalIgnoreCase);
             return twoWordsWithLetters || fundHints;
-        }
-
-        private static List<string> ExtractExtraDetailLines(string blockLarge, int blockStart, int blockEnd, int maxLines)
-        {
-            var moneys = RxMoneyLoose.Matches(blockLarge);
-            if (moneys.Count < 2) return new();
-
-            int from = moneys[1].Index + moneys[1].Length;
-            if (from < 0 || from >= blockLarge.Length) return new();
-
-            int len = Math.Max(0, Math.Min(blockEnd - blockStart, blockLarge.Length - from));
-            var tail = blockLarge.Substring(from, len);
-
-            var keep = new List<string>(maxLines);
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (var raw in tail.Split('\n'))
-            {
-                var l0 = raw.Trim();
-                if (l0.Length == 0) continue;
-
-                var l = PostClean(l0);
-                if (l.Length == 0) continue;
-
-                if (DropStarts.Any(p => l.StartsWith(p, StringComparison.OrdinalIgnoreCase))) continue;
-
-                if (DropExact.Any(t => string.Equals(l, t, StringComparison.OrdinalIgnoreCase))) continue;
-                if (RxAllDigitsish.IsMatch(l)) continue;
-                if (RxCuit.IsMatch(l)) continue;
-                if (RxLongId.IsMatch(l)) continue;
-
-                if (!l.Any(char.IsLetter)) continue;
-                if (!LooksLikeUsefulName(l)) continue;
-
-                var norm = Regex.Replace(l, @"\s+", " ").Trim();
-                if (seen.Contains(norm)) continue;
-                seen.Add(norm);
-
-                keep.Add(norm);
-                if (keep.Count >= maxLines) break;
-            }
-
-            return keep;
         }
 
         private static string NormalizeDashes(string s) =>
@@ -575,21 +503,6 @@ namespace AccountCore.Services.Parser.Parsers
         private const decimal EPS = 0.05m;
         private static bool NearlyEq(decimal a, decimal b, decimal eps = EPS)
             => Math.Abs(a - b) <= eps;
-
-        // === NUEVO: heurística de consistencia semántica crédito/débito a partir de la descripción ===
-        private static (bool? expectsCredit, string? reason) GuessSignFromDescription(string desc)
-        {
-            if (string.IsNullOrWhiteSpace(desc)) return (null, null);
-            var d = desc.ToUpperInvariant();
-
-            // pistas típicas
-            if (d.Contains("CRED ") || d.Contains("ACRED") || d.Contains("ACREDIT") || d.Contains("CRED BCA") || d.Contains("CREDITO"))
-                return (true, "desc_sugiere_credito");
-            if (d.Contains("DEB ") || d.Contains("DÉB ") || d.Contains("DEBIT") || d.Contains("DÉBIT") || d.Contains("DÉBITO") || d.Contains("DEBITO"))
-                return (false, "desc_sugiere_debito");
-
-            return (null, null);
-        }
 
         public ParseResult Parse(string text, Action<IBankStatementParser.ProgressUpdate>? progress = null)
         {
