@@ -196,7 +196,7 @@ namespace AccountCore.Services.Auth.Services
                     Roles = userRoles.Select(r => r.RoleKey ?? ""),
                     LoginId = user.Id ?? "",
                     FullName = fullName,
-                    RefreshToken = newRefreshToken
+                    RefreshToken = newRefreshToken ?? string.Empty
                 };
 
                 return ServiceResult<ReturnTokenDTO>.Ok(returnToken);
