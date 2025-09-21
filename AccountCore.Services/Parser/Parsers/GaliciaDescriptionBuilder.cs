@@ -37,20 +37,6 @@ namespace AccountCore.Services.Parser.Parsers
             @"^\s*\d+(?:\s+\d+)?\s*/\s*\d+\s*$",
             RegexOptions.Compiled);
 
-
-        // Identificadores útiles
-        private static readonly Regex RxCUIT = new(
-            @"\b\d{2}-\d{8}-\d\b|\b\d{11}\b",
-            RegexOptions.Compiled | RegexOptions.CultureInvariant);
-
-        private static readonly Regex RxCBU = new(
-            @"\b\d{22}\b",
-            RegexOptions.Compiled | RegexOptions.CultureInvariant);
-
-        private static readonly Regex RxAlphaNumCode = new(
-            @"\b[A-Z]{1,6}[A-Z0-9]{5,}\b",
-            RegexOptions.Compiled | RegexOptions.CultureInvariant);
-
         // NUEVO: marcador de página embebido (no necesariamente al inicio/fin)
         private static readonly Regex RxInlinePageMarker = new(
             @"\bP[aá]gina\s+\d+(?:\s+\d+)?\s*/\s*\d+\b",
@@ -60,14 +46,6 @@ namespace AccountCore.Services.Parser.Parsers
         private static readonly Regex RxLineSplit = new(
             @"(?:\r?\n|@@@)+",
             RegexOptions.Compiled | RegexOptions.CultureInvariant);
-
-        // Palabras de “Origen/detalle” que conviene mantener
-        private static readonly HashSet<string> KeepKeywords = new(StringComparer.OrdinalIgnoreCase)
-        {
-            "HABERES","ACRED.HABERES","PROVEEDORES","DEUDORES","AFIP","HONORARIOS",
-            "REG.RECAU.SIRCREB","FIMA PREMIUM CLASE A","BANCO SANTANDER RIO",
-            "NUEVO BANCO DE SANTA","LAMERCANTIL AND","MERCADO LIBRE SRL"
-        };
 
         private static readonly Regex RxDateAtStart = new(
             @"^\s*\d{2}/\d{2}/\d{2}\s*",
@@ -88,14 +66,10 @@ namespace AccountCore.Services.Parser.Parsers
         private static string DropLonelyMinusOne(string s) =>
             Regex.Replace(s ?? string.Empty, @"\s?-1\s?$", "").Trim();
 
-        private static bool LooksLikeOnlyNoiseNumbers(string s) =>
-            Regex.IsMatch(s ?? string.Empty, @"^[\d\.\,\-\s]+$");
-
         private static readonly Regex RxLongDigits = new(@"\b\d{10,}\b", RegexOptions.Compiled); // CBU, refs, tarjetas, ceros largos
         private static readonly Regex RxCUITLine = new(@"^\s*\d{2}-\d{8}-\d\s*$", RegexOptions.Compiled);
         private static readonly Regex RxCBULine = new(@"^\s*\d{22}\s*$", RegexOptions.Compiled);
         private static readonly Regex RxZerosLong = new(@"0{6,}", RegexOptions.Compiled); // tiras de ceros
-
 
         private static bool IsUsefulLine(string line)
         {
@@ -126,7 +100,6 @@ namespace AccountCore.Services.Parser.Parsers
             // Si llegó hasta acá, vale la pena
             return true;
         }
-
 
         // --- Helpers per-line (clave para no “comernos” los extras) ---
 
