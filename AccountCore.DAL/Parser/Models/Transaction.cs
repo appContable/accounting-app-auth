@@ -21,7 +21,9 @@ namespace AccountCore.DAL.Parser.Models
         /// <summary>Id de la regla aplicada si corresponde</summary>
         [BsonGuidRepresentation(GuidRepresentation.CSharpLegacy)]
         public Guid? CategoryRuleId { get; set; }
-        
-        
+
+        public bool IsSuspicious { get; set; }          // true si requiere intervención humana
+
+        public decimal? SuggestedAmount { get; set; }   // importe sugerido por el parser (si difiere del parseado)
     }
 }

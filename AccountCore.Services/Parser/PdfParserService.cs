@@ -3,12 +3,19 @@ using System.IO;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using AccountCore.DAL.Parser.Models;
-using AccountCore.DTO.Parser.Settings;
-using AccountCore.Services.Parser.Exceptions;
-using AccountCore.Services.Parser.Interfaces;
-using AccountCore.Services.Parser.Parsers;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+
+using AccountCore.DAL.Parser.Models;           // ParseResult, BankStatement, etc.
+using AccountCore.DTO.Parser.Settings;         // UsageSettings, ParserSettings
+using AccountCore.Services.Parser.Exceptions;  // UsageLimitExceededException
+using AccountCore.Services.Parser.Interfaces;  // IPdfParsingService, IBankStatementParser, IParseUsageRepository
+using AccountCore.Services.Parser.Parsers;     // GaliciaStatementParser, SupervielleStatementParser
+
 using Microsoft.Extensions.Options;
+
 using UglyToad.PdfPig;
 using UglyToad.PdfPig.Content;
 
@@ -16,32 +23,54 @@ namespace AccountCore.Services.Parser
 {
     public class PdfParserService : IPdfParsingService
     {
+        // Delimitadores consumidos por los parsers
+        private const string LineDelimiter = "@@@";
+        private const string PageDelimiterTemplate = "<<PAGE:{n}>>>";
+
+        // Heurísticas de filtrado (para bancos tipo Galicia)
+        private static readonly Regex RxHeaderCols = new Regex(
+            @"(?i)\b(Fecha|Fec\.)\b.*\b(Descripción|Concepto)\b.*\b(Cr[eé]dito)\b.*\b(D[ée]bito)\b.*\b(Saldo)\b",
+            RegexOptions.Compiled);
+
+        private static readonly Regex RxTotalLine = new Regex(
+            @"(?i)^\s*(Total|SALDO\s+PERIODO\s+ACTUAL|Saldo\s+del\s+per[ií]odo\s+anterior)\b",
+            RegexOptions.Compiled);
+
+        private static readonly Regex RxPageBanner = new Regex(
+            @"(?i)^Resumen\s+de\s+Cuenta(\s+Corriente)?\s+.*P[aá]gina\s+\d+\s*/\s*\d+",
+            RegexOptions.Compiled);
+
+        private static readonly Regex RxDocId = new Regex(
+            @"^\d{10,}P$",
+            RegexOptions.Compiled);
+
+        // Dependencias y configuración
         private readonly IDictionary<string, IBankStatementParser> _parsers;
         private readonly IParseUsageRepository _usageRepository;
         private readonly int _monthlyLimit;
 
-        private const string LineDelimiter = "@@@";
-        private const string PageDelimiterTemplate = "<<PAGE:{n}>>>";
-
         private readonly string? _dumpDir;
         private readonly bool _enableDump;
 
-        public PdfParserService(IParseUsageRepository usageRepository, IOptions<UsageSettings> usageOptions, IOptions<ParserSettings> Parser)
+        public PdfParserService(
+            IParseUsageRepository usageRepository,
+            IOptions<UsageSettings> usageOptions,
+            IOptions<ParserSettings> parser)
         {
-            // 1) variable de entorno gana
-            var envDump = Environment.GetEnvironmentVariable("Parser");
+            _usageRepository = usageRepository;
+            _monthlyLimit = usageOptions.Value.MonthlyLimit;
 
-            // 2) si no hay env, uso appsettings
-            _dumpDir = envDump ?? Parser.Value.DumpDir;
-            _enableDump = Parser.Value.EnableDump;
+            // Preferir variable de entorno PARSER_DUMP_DIR si existe; si no, usar ParserSettings.DumpDir
+            var envDump = Environment.GetEnvironmentVariable("PARSER_DUMP_DIR");
+            _dumpDir = !string.IsNullOrWhiteSpace(envDump) ? envDump : parser.Value.DumpDir;
+            _enableDump = parser.Value.EnableDump || !string.IsNullOrWhiteSpace(_dumpDir);
 
+            // Parsers registrados
             _parsers = new Dictionary<string, IBankStatementParser>(StringComparer.OrdinalIgnoreCase)
             {
                 ["galicia"] = new GaliciaStatementParser(),
                 ["supervielle"] = new SupervielleStatementParser(),
             };
-            _usageRepository = usageRepository;
-            _monthlyLimit = usageOptions.Value.MonthlyLimit;
         }
 
         public Task<ParseResult?> ParseAsync(Stream pdfStream, string bank, string userId)
@@ -49,68 +78,59 @@ namespace AccountCore.Services.Parser
 
         public async Task<ParseResult?> ParseAsync(Stream pdfStream, string bank, string userId, CancellationToken ct)
         {
-            // === Instrumentation: assign a runId and (optionally) dump the pre-parsed text ===
-            var _runId = Guid.NewGuid().ToString("N");
-
-            // límite mensual
+            // Límite mensual
             var now = DateTime.UtcNow;
-            var monthStart = new DateTime(now.Year, now.Month, 1);
+            var monthStart = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
             var count = await _usageRepository.CountByUserAsync(userId, monthStart, now);
-            if (count >= _monthlyLimit) throw new UsageLimitExceededException(_monthlyLimit);
+            if (count >= _monthlyLimit)
+                throw new UsageLimitExceededException(_monthlyLimit);
 
+            // Cargar PDF en memoria
             using var ms = new MemoryStream();
             await pdfStream.CopyToAsync(ms, ct);
             ms.Position = 0;
 
+            // Extraer texto (con o sin filtrado según banco)
+            var preserveAll = string.Equals(bank, "supervielle", StringComparison.OrdinalIgnoreCase);
             string fullText;
+
             using (var doc = PdfDocument.Open(ms))
             {
-                fullText = ExtractPagesForParser(doc, ct);
-
-                string? dumpDir = Environment.GetEnvironmentVariable("PARSER_DUMP_DIR");
-                if (!string.IsNullOrWhiteSpace(dumpDir))
-                {
-                    try
-                    {
-                        Directory.CreateDirectory(dumpDir);
-                        var prePath = Path.Combine(dumpDir, $"{DateTime.UtcNow:yyyyMMdd_HHmmssfff}_{_runId}_pre.txt");
-                        File.WriteAllText(prePath, fullText);
-                    }
-                    catch { /* ignore dump errors */ }
-                }
-
+                ct.ThrowIfCancellationRequested();
+                fullText = ExtractPagesForParser(doc, ct, preserveAll);
             }
 
-            if (!_parsers.TryGetValue(bank, out var parser)) return null;
+            // runId y dumps
+            var runId = Guid.NewGuid().ToString("N");
+            if (_enableDump && !string.IsNullOrWhiteSpace(_dumpDir))
+            {
+                SafeDump(_dumpDir, runId, "pre.txt", fullText);
+            }
 
+            // Seleccionar parser
+            if (!_parsers.TryGetValue(bank, out var parser))
+                return null;
+
+            // Ejecutar parser (sin callback de progreso en esta versión, para compatibilidad)
             var result = parser.Parse(fullText);
             if (result != null)
             {
-                try
-                {
-                    result.Warnings ??= new List<string>();
-                    result.Warnings.Insert(0, $"[run] id={_runId} bank={bank} user={userId} at={DateTime.UtcNow:o} len={fullText?.Length ?? 0}");
-                    var head = fullText ?? string.Empty;
-                    if (!string.IsNullOrEmpty(head))
-                    {
-                        var preview = head.Length <= 1200 ? head : head.Substring(0, 1200) + " …[truncated]";
-                        result.Warnings.Insert(1, "[fulltext.head] " + head.Replace("\r", " ").Replace("\n", " \\n "));
-                    }
+                result.Warnings ??= new List<string>();
+                result.Warnings.Insert(0, $"[run] id={runId} bank={bank} user={userId} at={DateTime.UtcNow:o} len={fullText?.Length ?? 0}");
 
-                    string? dumpDir2 = Environment.GetEnvironmentVariable("PARSER_DUMP_DIR");
-                    if (!string.IsNullOrWhiteSpace(dumpDir2))
-                    {
-                        try
-                        {
-                            var warnPath = Path.Combine(dumpDir2, $"{DateTime.UtcNow:yyyyMMdd_HHmmssfff}_{_runId}_warnings.log");
-                            File.WriteAllLines(warnPath, result.Warnings);
-                        }
-                        catch { /* ignore */ }
-                    }
+                var head = fullText ?? string.Empty;
+                var preview = head.Length <= 1200 ? head : head.Substring(0, 1200) + " …[truncated]";
+                // Mantengo tu estilo de normalización para que Swagger se vea consistente
+                result.Warnings.Insert(1, "[fulltext.head] " + preview.Replace("\r", " ").Replace("\n", " \\n "));
+
+                if (_enableDump && !string.IsNullOrWhiteSpace(_dumpDir))
+                {
+                    var warningsJoined = string.Join(Environment.NewLine, result.Warnings);
+                    SafeDump(_dumpDir, runId, "warnings.log", warningsJoined);
                 }
-                catch { /* ignore warn init errors */ }
             }
 
+            // Registrar uso
             if (result != null)
             {
                 await _usageRepository.CreateAsync(new ParseUsage
@@ -121,26 +141,16 @@ namespace AccountCore.Services.Parser
                 });
             }
 
-            if (_enableDump && !string.IsNullOrWhiteSpace(_dumpDir))
-            {
-                Directory.CreateDirectory(_dumpDir);
-                var prePath = Path.Combine(_dumpDir, $"{DateTime.UtcNow:yyyyMMdd_HHmmssfff}_{_runId}_pre.txt");
-                File.WriteAllText(prePath, fullText);
-                // idem para warnings.log
-            }
             return result;
         }
 
-        // ============================
-        // Reconstrucción con layout
-        // ============================
-
-        private static string ExtractPagesForParser(PdfDocument doc, CancellationToken ct)
+        // ============================================================
+        //              Extracción de texto por páginas
+        // ============================================================
+        private static string ExtractPagesForParser(PdfDocument doc, CancellationToken ct, bool preserveAll)
         {
             var sb = new StringBuilder(capacity: 64_000);
 
-            // En página 1: PASAR TODO (para meta: titular, CUIT, cuenta, CBU, período).
-            // De página 2 en adelante: quedar SOLO con la tabla de movimientos (sin encabezado ni pie).
             for (int p = 1; p <= doc.NumberOfPages; p++)
             {
                 ct.ThrowIfCancellationRequested();
@@ -152,22 +162,38 @@ namespace AccountCore.Services.Parser
                     ? RebuildFallback(page)
                     : RebuildLines(page.Letters);
 
-                if (p == 1)
+                IEnumerable<string> outLines;
+
+                if (preserveAll)
                 {
-                    // PÁGINA 1 COMPLETA pero sin banner ni doc-id
-                    foreach (var l in lines)
-                    {
-                        var clean = l.TrimEnd();
-                        if (RxPageBanner.IsMatch(clean)) continue; // quita "Resumen... Página x / y"
-                        if (RxDocId.IsMatch(clean)) continue;      // quita "20250131049285496P"
-                        sb.AppendLine(clean + LineDelimiter);
-                    }
+                    // Supervielle (multicuenta): no filtramos nada en ninguna página
+                    outLines = lines;
                 }
                 else
                 {
-                    // Páginas >= 2: solo movimientos
-                    foreach (var l in FilterMovementLines(lines))
-                        sb.AppendLine(l + LineDelimiter);
+                    // Galicia (u otros): página 1 completa sin banner/docId. Páginas >=2 solo movimientos.
+                    if (p == 1)
+                    {
+                        var firstPage = new List<string>();
+                        foreach (var l in lines)
+                        {
+                            var clean = (l ?? string.Empty).TrimEnd();
+                            if (clean.Length == 0) { firstPage.Add(clean); continue; }
+                            if (RxPageBanner.IsMatch(clean)) continue;
+                            if (RxDocId.IsMatch(clean)) continue;
+                            firstPage.Add(clean);
+                        }
+                        outLines = firstPage;
+                    }
+                    else
+                    {
+                        outLines = FilterMovementLines(lines);
+                    }
+                }
+
+                foreach (var l in outLines)
+                {
+                    sb.AppendLine(((l ?? string.Empty).TrimEnd()) + LineDelimiter);
                 }
 
                 sb.AppendLine();
@@ -176,94 +202,121 @@ namespace AccountCore.Services.Parser
             return sb.ToString();
         }
 
-        private static IEnumerable<string> RebuildFallback(Page page)
+        /// <summary>
+        /// Reconstrucción de líneas a partir de Letters agrupando por coordenada Y (top→bottom) y X (left→right).
+        /// </summary>
+        private static IEnumerable<string> RebuildLines(IReadOnlyList<Letter> letters)
         {
-            var txt = (page.Text ?? string.Empty).Replace("\r\n", "\n");
-            foreach (var l in txt.Split('\n'))
-                yield return l.TrimEnd();
-        }
+            if (letters == null || letters.Count == 0)
+            {
+                yield break;
+            }
 
-        private struct Glyph
-        {
-            public string Ch { get; set; }
-            public double X { get; set; }
-            public double Y { get; set; }
-            public double W { get; set; }
-        }
-
-        private static List<string> RebuildLines(IReadOnlyList<Letter> letters)
-        {
-            var glyphs = letters
-                .Where(l => !string.IsNullOrEmpty(l.Value) && !char.IsWhiteSpace(l.Value[0]))
-                .Select(l => new Glyph
-                {
-                    Ch = l.Value!,
-                    X = (double)l.StartBaseLine.X,
-                    Y = (double)l.StartBaseLine.Y,
-                    W = (double)l.GlyphRectangle.Width
-                })
-                .OrderByDescending(g => g.Y)
-                .ThenBy(g => g.X)
+            var ordered = letters
+                .Where(l => !string.IsNullOrEmpty(l.Value))
+                .OrderByDescending(l => l.StartBaseLine.Y)
+                .ThenBy(l => l.StartBaseLine.X)
                 .ToList();
 
-            const double yTol = 1.5;
-            var rows = new List<List<Glyph>>();
-            foreach (var g in glyphs)
+            var line = new StringBuilder();
+            double? currentY = null;
+            const double yTol = 1.5; // tolerancia para agrupar por renglón
+            double lastX = double.MinValue;
+            double lastW = 0;
+
+            foreach (var ch in ordered)
             {
-                if (rows.Count == 0) { rows.Add(new List<Glyph> { g }); continue; }
-                var last = rows[^1];
-                if (Math.Abs(g.Y - last[0].Y) > yTol) rows.Add(new List<Glyph> { g });
-                else last.Add(g);
+                double y = ch.StartBaseLine.Y;
+                double x = ch.StartBaseLine.X;
+                double w = ch.GlyphRectangle.Width;
+
+                if (currentY == null || Math.Abs(y - currentY.Value) > yTol)
+                {
+                    if (line.Length > 0)
+                    {
+                        yield return line.ToString();
+                        line.Clear();
+                    }
+                    currentY = y;
+                    lastX = x;
+                    lastW = w;
+                }
+                else
+                {
+                    if (x - (lastX + lastW) > Math.Max(lastW, w) * 0.5)
+                        line.Append(' ');
+                    lastX = x;
+                    lastW = w;
+                }
+
+                line.Append(ch.Value);
             }
 
-            var result = new List<string>(rows.Count);
-            foreach (var row in rows)
-            {
-                row.Sort((a, b) => a.X.CompareTo(b.X));
-                var sb = new StringBuilder(row.Count + 32);
-                Glyph? prev = null;
-                foreach (var g in row)
-                {
-                    if (prev.HasValue)
-                    {
-                        var pv = prev.Value;
-                        var gap = g.X - (pv.X + pv.W);
-                        if (gap > Math.Max(pv.W, g.W) * 0.5) sb.Append(' ');
-                    }
-                    sb.Append(g.Ch);
-                    prev = g;
-                }
-                var line = Regex.Replace(sb.ToString(), @"\s{2,}", " ").TrimEnd();
-                if (line.Length > 0) result.Add(line);
-            }
-            return result;
+            if (line.Length > 0)
+                yield return line.ToString();
         }
 
-        // ============================
-        // Filtro de movimientos (pág. >= 2)
-        // ============================
+        /// <summary>
+        /// Fallback cuando la página no tiene Letters (texto embebido no disponible).
+        /// </summary>
+        private static IEnumerable<string> RebuildFallback(Page page)
+        {
+            // PdfPig no provee texto legible en este caso; mantenemos estructura con línea vacía.
+            yield return string.Empty;
+        }
 
-        private static readonly Regex RxHeaderCols = new(
-            @"(?i)\bFecha\b.*\bDescripci[oó]n\b.*\bOrigen\b.*\bCr[ée]dito\b.*\bD[ée]bito\b.*\bSaldo\b");
-
-        private static readonly Regex RxTotalLine = new(@"(?i)^\s*Total\b");
-
-        private static readonly Regex RxPageBanner = new(@"(?i)^Resumen de Cuenta Corriente.*P[aá]gina\s+\d+\s*/\s*\d+", RegexOptions.Compiled);
-
-        private static readonly Regex RxDocId = new(@"^\d{10,}P$", RegexOptions.Compiled);
-
+        /// <summary>
+        /// Filtra solo la sección de movimientos (para bancos estilo Galicia). No usar para multicuenta.
+        /// </summary>
         private static IEnumerable<string> FilterMovementLines(IEnumerable<string> lines)
         {
             bool capture = false;
+
             foreach (var raw in lines)
             {
-                var line = raw.TrimEnd();
-                if (line.Length == 0) { if (capture) yield return line; continue; }
+                var line = (raw ?? string.Empty).TrimEnd();
+                if (line.Length == 0)
+                {
+                    if (capture) yield return line;
+                    continue;
+                }
 
-                if (RxHeaderCols.IsMatch(line)) { capture = true; continue; }      // no incluir encabezado
-                if (capture && RxTotalLine.IsMatch(line)) { capture = false; continue; } // no incluir "Total ..."
+                if (RxHeaderCols.IsMatch(line))
+                {
+                    capture = true;     // detectar inicio de tabla (no devolver la cabecera)
+                    continue;
+                }
+
+                if (capture && RxTotalLine.IsMatch(line))
+                {
+                    capture = false;    // cortar al hallar línea de totales/cierre
+                    continue;
+                }
+
                 if (capture) yield return line;
+            }
+        }
+
+        // ============================================================
+        //                         Dump helpers
+        // ============================================================
+        private static void SafeDump(string? baseDir, string runId, string fileName, string content)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(baseDir)) return;
+
+                var dir = Path.Combine(baseDir, runId);
+                Directory.CreateDirectory(dir);
+
+                var fullPath = Path.Combine(dir, $"{DateTime.UtcNow:yyyyMMdd_HHmmssfff}_{runId}_{fileName}");
+                File.WriteAllText(fullPath, content ?? string.Empty, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            }
+            catch
+            {
+                // No romper el parseo por problemas de dump
             }
         }
     }
 }
+
