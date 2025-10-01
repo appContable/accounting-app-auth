@@ -70,6 +70,8 @@ namespace AccountCore.Services.Parser
             {
                 ["galicia"] = new GaliciaStatementParser(),
                 ["supervielle"] = new SupervielleStatementParser(),
+                ["santander"] = new SantanderStatementParser(),
+                ["bbva"] = new BbvaStatementParser(),
             };
         }
 
@@ -91,7 +93,11 @@ namespace AccountCore.Services.Parser
             ms.Position = 0;
 
             // Extraer texto (con o sin filtrado según banco)
-            var preserveAll = string.Equals(bank, "supervielle", StringComparison.OrdinalIgnoreCase);
+            var preserveAll =
+                string.Equals(bank, "supervielle", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(bank, "santander", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(bank, "bbva", StringComparison.OrdinalIgnoreCase);
+
             string fullText;
 
             using (var doc = PdfDocument.Open(ms))
