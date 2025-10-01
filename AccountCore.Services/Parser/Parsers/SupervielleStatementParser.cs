@@ -21,12 +21,13 @@ namespace AccountCore.Services.Parser.Parsers
         // ===== Config =====
         private static readonly bool DIAGNOSTIC = false;
         private static readonly bool RAW_FULL = false;
+
         private static readonly int RAW_CHUNK_SIZE = 1600;
         private static readonly int RAW_MAX_CHUNKS = 999;
 
         // Delimitadores del servicio
-        private const string PAGE_TAG_FMT = "<<PAGE:{0}>>>";
         private const string LINE_DELIM = "@@@";
+
 
         // ===== Regex =====
         private static readonly Regex RxPeriodo = new(
@@ -87,15 +88,15 @@ namespace AccountCore.Services.Parser.Parsers
 
         private static void EmitRawFull(ParseResult result, string raw)
         {
-            if (!RAW_FULL) return;
-            var txt = (raw ?? "").Replace("\r\n", "\n").Replace('\r', '\n');
-            int n = 0;
-            foreach (var c in Chunk(txt, RAW_CHUNK_SIZE))
-            {
-                result.Warnings.Add($"[raw-full #{++n}] {c}");
-                if (n >= RAW_MAX_CHUNKS) break;
-            }
-            result.Warnings.Add($"[raw-full] total_chunks={n}, total_chars={txt.Length}");
+            // if (!RAW_FULL) return;
+            // var txt = (raw ?? "").Replace("\r\n", "\n").Replace('\r', '\n');
+            // int n = 0;
+            // foreach (var c in Chunk(txt, RAW_CHUNK_SIZE))
+            //{
+            //    result.Warnings.Add($"[raw-full #{++n}] {c}");
+            //     if (n >= RAW_MAX_CHUNKS) break;
+            // }
+            //result.Warnings.Add($"[raw-full] total_chunks={n}, total_chars={txt.Length}");
         }
 
         private static string NormalizeWhole(string t)
