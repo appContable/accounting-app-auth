@@ -19,8 +19,8 @@ namespace AccountCore.Services.Parser.Parsers
     public class SupervielleStatementParser : IBankStatementParser
     {
         // ===== Config =====
-        private static readonly bool DIAGNOSTIC = true;
-        private static readonly bool RAW_FULL = true;
+        private static readonly bool DIAGNOSTIC = false;
+        private static readonly bool RAW_FULL = false;
         private static readonly int RAW_CHUNK_SIZE = 1600;
         private static readonly int RAW_MAX_CHUNKS = 999;
 
