@@ -24,6 +24,9 @@ namespace AccountCore.Services.Parser.Parsers
             @"Cuenta\s+Corriente\s+especial\s*U\$S\s+N[º°]\s*([0-9]{3}-[0-9]{6}/[0-9])",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+        // === PATRÓN DE DINERO (acepta signo antes o después del símbolo) ===
+        private const string Money = @"(?:(?:[-+]\s*)?(?:U\$S|\$)?|(?:U\$S|\$)\s*[-+]?)\s*\d{1,3}(?:\.\d{3})*,\d{2}";
+
         // Acepta signo + o - y el signo puede ir antes o después del símbolo de moneda
         private static readonly Regex RxSaldoInicial = new Regex(
             @"Saldo\s+Inicial\s+(?:(?<sign>[+\-])\s*)?(?:U\$S|\$)?\s*(?<num>\d{1,3}(?:\.\d{3})*,\d{2})",
@@ -40,7 +43,7 @@ namespace AccountCore.Services.Parser.Parsers
         private static readonly Regex RxFechaLinea = new Regex(@"^([0-3]\d/[01]\d/\d{2})\b", RegexOptions.Compiled);
 
         private static readonly Regex RxImportesEnLinea = new Regex(
-            @"((?:U\$S|\$)?\s*[-+]?\s*[0-9\.\s]+,[0-9]{2})",
+            @"((" + Money + @"))",
             RegexOptions.Compiled);
 
         private const string MarcaMovimientosPesos = "Movimientos en pesos";
@@ -166,6 +169,22 @@ namespace AccountCore.Services.Parser.Parsers
             txs = OrderAndRecomputeByDelta(txs, opening, Log);
             acc.Transactions.AddRange(txs);
 
+            // === Validación de cierre (ARS) ===
+            var lastBalArs = acc.Transactions.LastOrDefault()?.Balance;
+            if (acc.ClosingBalance.HasValue && lastBalArs.HasValue)
+            {
+                if (Math.Abs(acc.ClosingBalance.Value - lastBalArs.Value) > AmountTolerance)
+                {
+                    warnings.Add($"[balance.mismatch.ARS] closing printed={acc.ClosingBalance.Value:n2} computed={lastBalArs.Value:n2}");
+                    if (acc.Transactions.Count > 0)
+                    {
+                        var lastTx = acc.Transactions[^1];
+                        lastTx.IsSuspicious = true;
+                        lastTx.SuggestedAmount = lastTx.Amount;
+                    }
+                }
+            }
+
             statement.Accounts.Add(acc);
 
             // ===== Cuenta USD (posterior) =====
@@ -230,13 +249,31 @@ namespace AccountCore.Services.Parser.Parsers
                 }
 
                 acc2.Transactions.AddRange(txsUsd);
+
+                // Validación de cierre (USD)
+                var lastBalUsd = acc2.Transactions.LastOrDefault()?.Balance;
+                if (acc2.ClosingBalance.HasValue && lastBalUsd.HasValue)
+                {
+                    if (Math.Abs(acc2.ClosingBalance.Value - lastBalUsd.Value) > AmountTolerance)
+                    {
+                        warnings.Add($"[balance.mismatch.USD] closing printed={acc2.ClosingBalance.Value:n2} computed={lastBalUsd.Value:n2}");
+                        if (acc2.Transactions.Count > 0)
+                        {
+                            var lastTx = acc2.Transactions[^1];
+                            lastTx.IsSuspicious = true;
+                            lastTx.SuggestedAmount = lastTx.Amount;
+                        }
+                    }
+                }
+
                 statement.Accounts.Add(acc2);
             }
 
             return new ParseResult { Statement = statement, Warnings = warnings };
         }
 
-        private static readonly Regex RxTwoAmts = new(@"((?:U\$S|\$)?\s*[-+]?\s*[0-9\.\s]+,[0-9]{2})", RegexOptions.Compiled);
+        // === Usamos Money para tomar ambos órdenes del signo/moneda ===
+        private static readonly Regex RxTwoAmts = new(@"(" + Money + @")", RegexOptions.Compiled);
 
         private static (decimal? printedAmtAbs, decimal? printedBal) TryGetPrintedFromOriginal(string original, Action<string>? log = null)
         {
@@ -267,7 +304,6 @@ namespace AccountCore.Services.Parser.Parsers
             {
                 var t = ordered[i];
 
-                // dentro de OrderAndRecomputeByDelta o donde hoy hacés la comparación impreso vs delta
                 if (prev.HasValue)
                 {
                     var delta = Math.Round(t.Balance - prev.Value, 2);
@@ -277,24 +313,19 @@ namespace AccountCore.Services.Parser.Parsers
                     var (printedAmtAbs, _) = TryGetPrintedFromOriginal(t.OriginalDescription ?? "");
                     if (printedAmtAbs.HasValue)
                     {
-                        // 1) Señal del impreso según la columna (si la tenemos) o descripción
                         var printedSign = t.Type == "credit" ? +1m : -1m;
                         var signedPrinted = printedSign * printedAmtAbs.Value;
 
-                        // 2) Validar que el "impreso" cierra el saldo de esa misma fila.
-                        //    Si no cierra, consideramos el impreso inválido y NO marcamos sospechoso.
                         var printedConsistente = Math.Abs(prev.Value + signedPrinted - t.Balance) <= AmountTolerance;
 
                         if (printedConsistente)
                         {
-                            // Solo si el impreso es consistente, lo comparamos con el delta:
                             var diffMag = Math.Abs(Math.Abs(delta) - printedAmtAbs.Value);
                             t.IsSuspicious = diffMag > AmountTolerance;
-                            t.SuggestedAmount = t.IsSuspicious ? delta : null;
+                            t.SuggestedAmount = t.IsSuspicious ? delta : (decimal?)null;
                         }
                         else
                         {
-                            // Impreso dudoso => no usarlo para "sospechoso"
                             t.IsSuspicious = false;
                             t.SuggestedAmount = null;
                         }
@@ -305,13 +336,9 @@ namespace AccountCore.Services.Parser.Parsers
                         t.SuggestedAmount = null;
                     }
                 }
-
                 else
                 {
-                    // Sin saldo inicial: la PRIMERA queda como vino (probablemente el impreso)
-                    // y la marcamos sospechosa para revisar. A partir de la 2da ya hay prev.
-                    t.IsSuspicious = true;
-                    // no imponemos SuggestedAmount aquí (no hay delta base)
+                    t.IsSuspicious = true; // primera sin opening
                 }
 
                 prev = t.Balance;
@@ -329,15 +356,16 @@ namespace AccountCore.Services.Parser.Parsers
             return result;
         }
 
+        // === REGEX de filas (2 y 3 columnas) usando Money ===
         private static readonly Regex Op = new(
-            @"(?s)(?<desc>.+?)\s+(?:U\$S|\$)?\s*(?<amt>-?\d{1,3}(?:\.\d{3})*,\d{2})\s{1,10}(?<bal>(?:U\$S|\$)?\s*[-+]?\s*\d{1,3}(?:\.\d{3})*,\d{2})",
+            @"(?s)(?<desc>.+?)\s+(?<amt>" + Money + @")\s{1,10}(?<bal>" + Money + @")",
             RegexOptions.Compiled);
 
         private static readonly Regex Op3Cols = new(
             @"^(?<desc>.+?)\s+" +
-            @"(?:(?<credit>\$?\s*\d{1,3}(?:\.\d{3})*,\d{2}))?\s+" +
-            @"(?:(?<debit>\$?\s*\d{1,3}(?:\.\d{3})*,\d{2}))?\s+" +
-            @"(?<bal>[-+]?\$?\s*\d{1,3}(?:\.\d{3})*,\d{2})\s*$",
+            @"(?:(?<credit>" + Money + @"))?\s+" +
+            @"(?:(?<debit>" + Money + @"))?\s+" +
+            @"(?<bal>" + Money + @")\s*$",
             RegexOptions.Compiled | RegexOptions.Multiline
         );
 
@@ -446,7 +474,8 @@ namespace AccountCore.Services.Parser.Parsers
                 var t = new Transaction
                 {
                     Date = date,
-                    OriginalDescription = $"{desc}  $ {amtStr} {balStr}".Trim(),
+                    // FIX: sin "$ " duplicado
+                    OriginalDescription = $"{desc}  {amtStr} {balStr}".Trim(),
                     Description = desc,
                     Amount = Math.Round(signedAmt, 2),
                     Type = type,
@@ -718,7 +747,6 @@ namespace AccountCore.Services.Parser.Parsers
                 }
                 else
                 {
-                    // primera línea sin saldo inicial: usar impreso (si existe) solo como valor provisional
                     if (printedAmtAbs.HasValue)
                         delta = !string.IsNullOrEmpty(creditStr) ? printedAmtAbs.Value : -printedAmtAbs.Value;
                     else
@@ -747,7 +775,6 @@ namespace AccountCore.Services.Parser.Parsers
                     }
                 }
 
-                // actualizar prev SIEMPRE al saldo de la fila
                 prev = bal;
                 txs.Add(t);
             }
