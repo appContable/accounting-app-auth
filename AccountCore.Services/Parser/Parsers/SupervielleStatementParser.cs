@@ -59,8 +59,14 @@ namespace AccountCore.Services.Parser.Parsers
 
         // Línea de transacción (fecha, desc, ref, importe, saldo)
         private static readonly Regex RxTxnLine = new(
-            @"(?m)^\s*(?<date>\d{2}/\d{2}/\d{2})\s+(?<desc>.+?)\s+(?<ref>[A-Z0-9:\|\*]{1,})\s+(?<amount>\d{1,3}(?:\.\d{3})*,\d{2})\s+(?<balance>\d{1,3}(?:\.\d{3})*,\d{2}-?)\s*(?:@@@)?\s*$",
-            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            @"(?m)^\s*
+            (?<date>\d{2}/\d{2}/\d{2})\s+
+            (?<desc>.+?)\s+
+            (?<ref>[A-Za-z0-9 .:\-/*]+)?\s+
+            (?<amount>\d{1,3}(?:\.\d{3})*,\d{2}-?)\s+
+            (?<balance>\d{1,3}(?:\.\d{3})*,\d{2}-?)\s*
+            (?:@@@)?\s*$",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.IgnorePatternWhitespace);
 
         // Continuaciones útiles
         private static readonly Regex RxContOperacion = new(
@@ -261,6 +267,13 @@ namespace AccountCore.Services.Parser.Parsers
                     var looksCredit = InferType(null, null, null, fullDesc) == TxType.Credit;
                     signedAmount = looksCredit ? +amtAbs : -amtAbs;
                 }
+
+                var dUpper = fullDesc.ToUpperInvariant();
+                if (dUpper.StartsWith("DB.") || dUpper.StartsWith("DÉBITO") || dUpper.StartsWith("DEBITO"))
+                    signedAmount = -Math.Abs(amtAbs);
+                else if (dUpper.StartsWith("CR.") || dUpper.StartsWith("CRÉDITO") || dUpper.StartsWith("CREDITO") || dUpper.StartsWith("CRED BCA"))
+                    signedAmount = +Math.Abs(amtAbs);
+
 
                 var tx = new Transaction
                 {
