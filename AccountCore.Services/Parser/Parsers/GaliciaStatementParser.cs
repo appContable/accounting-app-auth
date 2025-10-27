@@ -398,6 +398,9 @@ namespace AccountCore.Services.Parser.Parsers
             t = t.Replace('\u00A0', ' ');
             t = NormalizeDashes(t);
 
+            // Evitar que números de 3 dígitos sin miles (e.g. 411,21) pierdan dígitos por espacios raros del OCR
+            t = Regex.Replace(t, @"(?<=^|\s)(\d)\s*(\d)\s*(\d),\s*(\d)\s*(\d)(?=\b)", "${1}${2}${3},${4}${5}");
+
             t = Regex.Replace(t, @"(?:@{3}|\r?\n)", " ");
             t = Regex.Replace(t,
                 @"(?<=[\p{L}\p{Nd}])-(?=\s*\d{1,3}(?:\s?\.\s?\d{3})*,\s?\d{2}(?:-|\b))",
@@ -758,6 +761,7 @@ namespace AccountCore.Services.Parser.Parsers
 
                 decimal amount, balance; bool usedFallbackThisBlock = false;
 
+                // === [1] Intenta vía estricta
                 if (strict.Count >= 2)
                 {
                     var importeTok = strict[0];
@@ -792,6 +796,34 @@ namespace AccountCore.Services.Parser.Parsers
                     (amount, balance) = ab.Value; usedFallbackThisBlock = true; fallbackUsedCount++;
                 }
 
+                // === [2] NUEVO: chequeo de consistencia con prevRunningBalance;
+                if (prevRunningBalance.HasValue)
+                {
+                    var expected = balance - prevRunningBalance.Value;
+                    var closes = NearlyEq(amount, expected) || NearlyEq(-amount, expected);
+
+                    if (!closes)
+                    {
+                        // Reintenta con el parser "blando" sobre el bloque RAW (sin TightenForNumbers)
+                        var ab2 = TryParseAmountAndBalance(blockRawForDebug);
+                        if (ab2.HasValue)
+                        {
+                            var (a2, b2) = ab2.Value;
+                            var exp2 = b2 - prevRunningBalance.Value;
+                            var closes2 = NearlyEq(a2, exp2) || NearlyEq(-a2, exp2);
+
+                            if (closes2)
+                            {
+                                amount = a2;
+                                balance = b2;
+                                usedFallbackThisBlock = true;
+                                fallbackUsedCount++;
+                                result.Warnings.Add("[recovered.with.fallback] mismatch estricto; par blando cierra saldo");
+                            }
+                        }
+                    }
+                }
+                
                 // ======== NO RECONCILIAR ========
                 // expected = balance - prevBalance (si hay prevBalance)
                 bool suspicious = false;
