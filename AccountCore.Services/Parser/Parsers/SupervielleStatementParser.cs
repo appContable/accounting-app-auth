@@ -19,15 +19,14 @@ namespace AccountCore.Services.Parser.Parsers
     public class SupervielleStatementParser : IBankStatementParser
     {
         // ===== Config =====
-        private static readonly bool DIAGNOSTIC = false;
-        private static readonly bool RAW_FULL = false;
-
+        private static readonly bool DIAGNOSTIC = true;
+        private static readonly bool RAW_FULL = true;
         private static readonly int RAW_CHUNK_SIZE = 1600;
         private static readonly int RAW_MAX_CHUNKS = 999;
 
         // Delimitadores del servicio
+        private const string PAGE_TAG_FMT = "<<PAGE:{0}>>>";
         private const string LINE_DELIM = "@@@";
-
 
         // ===== Regex =====
         private static readonly Regex RxPeriodo = new(
@@ -60,8 +59,14 @@ namespace AccountCore.Services.Parser.Parsers
 
         // Línea de transacción (fecha, desc, ref, importe, saldo)
         private static readonly Regex RxTxnLine = new(
-            @"(?m)^\s*(?<date>\d{2}/\d{2}/\d{2})\s+(?<desc>.+?)\s+(?<ref>[A-Z0-9:\|\*]{1,})\s+(?<amount>\d{1,3}(?:\.\d{3})*,\d{2})\s+(?<balance>\d{1,3}(?:\.\d{3})*,\d{2}-?)\s*(?:@@@)?\s*$",
-            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            @"(?m)^\s*
+            (?<date>\d{2}/\d{2}/\d{2})\s+
+            (?<desc>.+?)\s+
+            (?<ref>[A-Za-z0-9 .:\-/*]+)?\s+
+            (?<amount>\d{1,3}(?:\.\d{3})*,\d{2}-?)\s+
+            (?<balance>\d{1,3}(?:\.\d{3})*,\d{2}-?)\s*
+            (?:@@@)?\s*$",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.IgnorePatternWhitespace);
 
         // Continuaciones útiles
         private static readonly Regex RxContOperacion = new(
@@ -88,15 +93,15 @@ namespace AccountCore.Services.Parser.Parsers
 
         private static void EmitRawFull(ParseResult result, string raw)
         {
-            // if (!RAW_FULL) return;
-            // var txt = (raw ?? "").Replace("\r\n", "\n").Replace('\r', '\n');
-            // int n = 0;
-            // foreach (var c in Chunk(txt, RAW_CHUNK_SIZE))
-            //{
-            //    result.Warnings.Add($"[raw-full #{++n}] {c}");
-            //     if (n >= RAW_MAX_CHUNKS) break;
-            // }
-            //result.Warnings.Add($"[raw-full] total_chunks={n}, total_chars={txt.Length}");
+            if (!RAW_FULL) return;
+            var txt = (raw ?? "").Replace("\r\n", "\n").Replace('\r', '\n');
+            int n = 0;
+            foreach (var c in Chunk(txt, RAW_CHUNK_SIZE))
+            {
+                result.Warnings.Add($"[raw-full #{++n}] {c}");
+                if (n >= RAW_MAX_CHUNKS) break;
+            }
+            result.Warnings.Add($"[raw-full] total_chunks={n}, total_chars={txt.Length}");
         }
 
         private static string NormalizeWhole(string t)
@@ -262,6 +267,13 @@ namespace AccountCore.Services.Parser.Parsers
                     var looksCredit = InferType(null, null, null, fullDesc) == TxType.Credit;
                     signedAmount = looksCredit ? +amtAbs : -amtAbs;
                 }
+
+                var dUpper = fullDesc.ToUpperInvariant();
+                if (dUpper.StartsWith("DB.") || dUpper.StartsWith("DÉBITO") || dUpper.StartsWith("DEBITO"))
+                    signedAmount = -Math.Abs(amtAbs);
+                else if (dUpper.StartsWith("CR.") || dUpper.StartsWith("CRÉDITO") || dUpper.StartsWith("CREDITO") || dUpper.StartsWith("CRED BCA"))
+                    signedAmount = +Math.Abs(amtAbs);
+
 
                 var tx = new Transaction
                 {
