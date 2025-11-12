@@ -75,7 +75,7 @@ namespace AccountCore.Services.Auth.Services
                     var newRole = roles.FirstOrDefault(r => r.RoleKey == newRoleId);
                     if (newRole == null)
                     {
-                        return ServiceResult<UserDTO>.Error(ErrorsKey.Argument, "Invalid Role");
+                        return ServiceResult<UserDTO>.Error(ErrorsKey.Argument, $"Invalid Roles: {newRoleId}");
                     }
 
                     user.AddRole(newRole);
@@ -299,13 +299,13 @@ namespace AccountCore.Services.Auth.Services
             }
 
             var validRoles = await _roleRepository.GetEnabledRolesAsync();
-            var validRoleIds = validRoles.Select(r => r.Id).ToHashSet();
+            var validRoleIds = validRoles.Select(r => r.RoleKey).ToHashSet();
             
             foreach (var roleId in userDto.RoleIds ?? Array.Empty<string>())
             {
                 if (!validRoleIds.Contains(roleId))
                 {
-                    errors.Add(new KeyValuePair<string, string>(ErrorsKey.InvalidRol.ToString(), $"Invalid role: {roleId}"));
+                    errors.Add(new KeyValuePair<string, string>(ErrorsKey.InvalidRol.ToString(), $"Invalid roleamd: {roleId}"));
                 }
             }
 

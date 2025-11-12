@@ -24,7 +24,7 @@ namespace AccountCore.API.Controllers
         }
 
         [HttpGet]
-        [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme, Roles = $"{ClaimsPrincipalExtensions.AdminRole}")]
+        [AllowAnonymous]
         [SwaggerOperation(Summary = "Retrieve a user by id")]
         [SwaggerResponse(StatusCodes.Status200OK, "User found", typeof(UserDTO))]
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Invalid request")]
