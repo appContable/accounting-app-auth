@@ -58,6 +58,7 @@ namespace AccountCore.Services.Auth.Services
                 {
                     FirstName = userDto.FirstName,
                     LastName = userDto.LastName,
+                    Cuit = userDto.Cuit,
                     Email = userDto.Email,
                     CreationDate = DateTime.UtcNow,
                     Id = Guid.NewGuid().ToString(),
@@ -161,6 +162,7 @@ namespace AccountCore.Services.Auth.Services
 
                 user.FirstName = userDto.FirstName;
                 user.LastName = userDto.LastName;
+                user.Cuit = userDto.Cuit;
                 user.Email = userDto.Email;
 
                 var roles = await _roleRepository.GetRolesByIdsAsync(userDto.RoleIds ?? Array.Empty<string>());

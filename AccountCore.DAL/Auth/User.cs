@@ -10,6 +10,8 @@ namespace AccountCore.DAL.Auth.Models
 
         public string? LastName { get; set; }
 
+        public string Cuit { get; set; } = null!;
+
         public string Email { get; set; } = null!;
 
         public bool IsLock { get; set; } = false;
