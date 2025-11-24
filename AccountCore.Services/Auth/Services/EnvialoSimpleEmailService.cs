@@ -16,29 +16,47 @@ namespace AccountCore.Services.Auth.Services
         private readonly ILogger<EnvialoSimpleEmailService> _logger;
         private readonly EmailSettings _settings;
 
-        public EnvialoSimpleEmailService(HttpClient httpClient, ILogger<EnvialoSimpleEmailService> logger, IOptions<EmailSettings> emailOptions)
+        public EnvialoSimpleEmailService(
+            HttpClient httpClient,
+            ILogger<EnvialoSimpleEmailService> logger,
+            IOptions<EmailSettings> emailOptions)
         {
             _httpClient = httpClient;
             _logger = logger;
             _settings = emailOptions.Value;
 
+            // Base URL segun doc oficial:
+            // https://api.envialosimple.email/api/v1/mail/send
             if (!string.IsNullOrWhiteSpace(_settings.BaseUrl))
             {
                 _httpClient.BaseAddress = new Uri(_settings.BaseUrl);
             }
+            else
+            {
+                _httpClient.BaseAddress = new Uri("https://api.envialosimple.email/");
+            }
 
             if (!string.IsNullOrWhiteSpace(_settings.ApiKey))
             {
-                _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _settings.ApiKey);
+                _httpClient.DefaultRequestHeaders.Authorization =
+                    new AuthenticationHeaderValue("Bearer", _settings.ApiKey);
             }
         }
 
         public async Task<ServiceResult<bool>> SendWelcomeEmailAsync(User user, string activationLink)
         {
-            var subject = string.IsNullOrWhiteSpace(_settings.WelcomeSubject) ? "Bienvenido" : _settings.WelcomeSubject;
+            var subject = string.IsNullOrWhiteSpace(_settings.WelcomeSubject)
+                ? "Bienvenido"
+                : _settings.WelcomeSubject;
+
             var body = BuildWelcomeBody(user, activationLink);
 
-            return await SendAsync(user, subject, body, _settings.WelcomeTemplateId, activationLink);
+            return await SendAsync(
+                user,
+                subject,
+                body,
+                _settings.WelcomeTemplateId,
+                activationLink);
         }
 
         public async Task<ServiceResult<bool>> SendResetPasswordEmailAsync(User user, string resetLink)
@@ -49,26 +67,55 @@ namespace AccountCore.Services.Auth.Services
 
             var body = BuildResetPasswordBody(user, resetLink);
 
-            return await SendAsync(user, subject, body, _settings.ResetPasswordTemplateId, resetLink);
+            return await SendAsync(
+                user,
+                subject,
+                body,
+                _settings.ResetPasswordTemplateId,
+                resetLink);
         }
 
-        private async Task<ServiceResult<bool>> SendAsync(User user, string subject, string htmlBody, string? templateId, string actionLink)
+        private async Task<ServiceResult<bool>> SendAsync(
+            User user,
+            string subject,
+            string htmlBody,
+            string? templateId,
+            string actionLink)
         {
             try
             {
-                if (string.IsNullOrWhiteSpace(_settings.BaseUrl) || string.IsNullOrWhiteSpace(_settings.ApiKey))
+                if (string.IsNullOrWhiteSpace(_settings.ApiKey))
                 {
-                    return ServiceResult<bool>.Error(ErrorsKey.InternalErrorCode, "Email settings are not configured");
+                    return ServiceResult<bool>.Error(
+                        ErrorsKey.InternalErrorCode,
+                        "Email settings are not configured");
                 }
 
+                // "from" y "to" segun doc (pueden ser string u objeto)
                 var requestBody = new
                 {
-                    from = new { email = _settings.FromEmail, name = _settings.FromName },
-                    to = new[] { new { email = user.Email, name = $"{user.FirstName} {user.LastName}".Trim() } },
+                    // Puede ser tambien string: $"{_settings.FromName} <{_settings.FromEmail}>"
+                    from = new
+                    {
+                        email = _settings.FromEmail,
+                        name = _settings.FromName
+                    },
+                    to = new[]
+                    {
+                        new
+                        {
+                            email = user.Email,
+                            name = $"{user.FirstName} {user.LastName}".Trim()
+                        }
+                    },
                     subject,
+                    // Al menos uno de estos debe venir informado: html / text / templateID
                     html = htmlBody,
-                    template_id = string.IsNullOrWhiteSpace(templateId) ? null : templateId,
-                    custom_fields = new
+                    templateID = string.IsNullOrWhiteSpace(templateId) ? null : templateId,
+
+                    // Variables para usar en la plantilla o en el HTML con {{firstName}}, etc.
+                    // La API espera "context" o "substitutions"
+                    context = new
                     {
                         firstName = user.FirstName,
                         lastName = user.LastName,
@@ -77,7 +124,11 @@ namespace AccountCore.Services.Auth.Services
                     }
                 };
 
-                var response = await _httpClient.PostAsJsonAsync("api/transactional/email", requestBody);
+                // OJO con el path: tiene que ser /api/v1/mail/send
+                // Si BaseUrl = "https://api.envialosimple.email/"
+                // entonces aca va "api/v1/mail/send"
+                var response = await _httpClient.PostAsJsonAsync("api/v1/mail/send", requestBody);
+
                 if (response.IsSuccessStatusCode)
                 {
                     return ServiceResult<bool>.Ok(true);
@@ -89,7 +140,9 @@ namespace AccountCore.Services.Auth.Services
                     response.StatusCode,
                     responseBody);
 
-                return ServiceResult<bool>.Error(ErrorsKey.InternalErrorCode, "Failed to send transactional email");
+                return ServiceResult<bool>.Error(
+                    ErrorsKey.InternalErrorCode,
+                    "Failed to send transactional email");
             }
             catch (Exception ex)
             {
