@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
 using AccountCore.DTO.Auth.Validation;
+using Swashbuckle.AspNetCore.Annotations;
 
 namespace AccountCore.DTO.Auth.Entities
 {
@@ -10,7 +11,8 @@ namespace AccountCore.DTO.Auth.Entities
         /// User login (email or CUIT)
         /// </summary>
         [Required(ErrorMessage = "Login is required")]
-        [JsonPropertyName("email")]
+        [JsonPropertyName("login")]
+        [SwaggerSchema(Description = "Login del usuario (email o CUIT)")]
         public string? Login { get; set; }
 
         /// <summary>

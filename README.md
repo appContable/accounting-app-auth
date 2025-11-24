@@ -51,7 +51,7 @@ Para habilitar HTTPS, defina `HttpsPort` en la configuración; el middleware `Us
 |-------|------|-------------|------------|-------|-------------|
 | POST | `/api/Auth/authentication` | Autentica usuario y retorna JWT + refresh token | - | `AuthenticationDTO` (email o CUIT, password) | Ninguna |
 | POST | `/api/Auth/SetNewPassword/{userId}/{codeBase64}` | Confirma restablecimiento de contraseña | `userId`, `codeBase64` | `SetPasswordDTO` | Ninguna |
-| POST | `/api/Auth/ResetPassword` | Envía instrucciones de reseteo por email | - | campo `email` (form-data) | Ninguna |
+| POST | `/api/Auth/ResetPassword` | Envía instrucciones de reseteo por email | - | `ResetPasswordRequest` (email) | Ninguna |
 | POST | `/api/Auth/refresh-token` | Genera un nuevo JWT usando un refresh token válido | - | `TokenModelDTO` (token, refreshToken) | Ninguna |
 
 ### Parser

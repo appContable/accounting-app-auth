@@ -25,7 +25,7 @@ namespace AccountCore.API.Controllers
 
         [AllowAnonymous]
         [HttpPost("authentication")]
-        [SwaggerOperation(Summary = "Authenticate user and generate JWT token")]
+        [SwaggerOperation(Summary = "Authenticate user (email o CUIT) and generate JWT token")]
         [SwaggerResponse(StatusCodes.Status200OK, "Authentication successful", typeof(ReturnTokenDTO))]
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Invalid credentials or validation errors")]
         public async Task<IActionResult> Authentication([FromBody] AuthenticationDTO user)
@@ -76,14 +76,16 @@ namespace AccountCore.API.Controllers
         [SwaggerOperation(Summary = "Send password reset instructions to email")]
         [SwaggerResponse(StatusCodes.Status200OK, "Password reset instructions sent")]
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Invalid email or user not found")]
-        public async Task<IActionResult> ResetPassword([FromForm] string email)
+        public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest request)
         {
-            if (string.IsNullOrWhiteSpace(email) || !email.IsValidEmail())
+            var validationResults = ValidationExtensions.ValidateObject(request);
+            if (validationResults.Any())
             {
-                return BadRequest("Valid email is required");
+                var errors = validationResults.Select(v => v.ErrorMessage).ToList();
+                return BadRequest(errors);
             }
 
-            var token = await _authService.ResetPassword(email);
+            var token = await _authService.ResetPassword(request.Email!);
 
             if (token.Success)
             {
