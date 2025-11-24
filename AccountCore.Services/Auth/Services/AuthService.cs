@@ -267,7 +267,8 @@ namespace AccountCore.Services.Auth.Services
                     return ServiceResult<bool>.Error(ErrorsKey.InternalErrorCode, "UiBaseUrl is not configured");
                 }
 
-                var link = $"{uiBaseUrl}/set-new-password?UserId={user.Id}&code={token}";
+                var tokenBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(token));
+                var link = $"{uiBaseUrl}/set-new-password?UserId={user.Id}&code={tokenBase64}";
                 var emailResult = await _emailService.SendResetPasswordEmailAsync(user, link);
 
                 if (!emailResult.Success)
@@ -306,8 +307,14 @@ namespace AccountCore.Services.Auth.Services
                     return ServiceResult<bool>.Error(ErrorsKey.WeakPassword, "Password must be at least 8 characters with uppercase, lowercase, and digit");
                 }
 
+                var token = DecodeToken(codeBase64);
+                if (token == null)
+                {
+                    return ServiceResult<bool>.Error(ErrorsKey.InvalidInvitation, "Invalid Token");
+                }
+
                 var user = await _userRepository.GetByIdAsync(userId);
-                if (user == null || user.Token != codeBase64 || user.IsActive != true || user.IsSysAdmin)
+                if (user == null || user.Token != token || user.IsActive != true || user.IsSysAdmin)
                 {
                     return ServiceResult<bool>.Error(ErrorsKey.InvalidInvitation, "Invalid Token");
                 }
@@ -326,6 +333,21 @@ namespace AccountCore.Services.Auth.Services
             {
                 _logger.LogError(e, "AuthService.SetNewPassword");
                 return ServiceResult<bool>.Error(ErrorsKey.InternalErrorCode, e.Message);
+            }
+        }
+
+
+        private string? DecodeToken(string codeBase64)
+        {
+            try
+            {
+                var bytes = Convert.FromBase64String(codeBase64);
+                return Encoding.UTF8.GetString(bytes);
+            }
+            catch (FormatException e)
+            {
+                _logger.LogWarning(e, "Invalid token format during password reset");
+                return null;
             }
         }
 
