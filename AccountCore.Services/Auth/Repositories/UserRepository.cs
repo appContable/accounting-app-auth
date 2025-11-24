@@ -20,6 +20,12 @@ namespace AccountCore.Services.Auth.Repositories
                 .FirstOrDefaultAsync(u => u.Email.ToLower() == email.ToLower() && u.IsActive == true);
         }
 
+        public async Task<User?> GetByCuitAsync(string cuit)
+        {
+            return await _context.Users
+                .FirstOrDefaultAsync(u => u.Cuit == cuit && u.IsActive == true);
+        }
+
         public async Task<User?> GetByIdAsync(string id)
         {
             return await _context.Users
@@ -76,7 +82,19 @@ namespace AccountCore.Services.Auth.Repositories
         public async Task<bool> EmailExistsAsync(string email, string? excludeUserId = null)
         {
             var query = _context.Users.AsQueryable().Where(u => u.Email.Equals(email));
-            
+
+            if (!string.IsNullOrEmpty(excludeUserId))
+            {
+                query = query.Where(u => u.Id != excludeUserId);
+            }
+
+            return await query.AnyAsync();
+        }
+
+        public async Task<bool> CuitExistsAsync(string cuit, string? excludeUserId = null)
+        {
+            var query = _context.Users.AsQueryable().Where(u => u.Cuit.Equals(cuit));
+
             if (!string.IsNullOrEmpty(excludeUserId))
             {
                 query = query.Where(u => u.Id != excludeUserId);
