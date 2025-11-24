@@ -1,7 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
 using AccountCore.DTO.Auth.Validation;
-using Swashbuckle.AspNetCore.Annotations;
 
 namespace AccountCore.DTO.Auth.Entities
 {
@@ -9,7 +8,6 @@ namespace AccountCore.DTO.Auth.Entities
     {
         [Required(ErrorMessage = "Email is required")]
         [JsonPropertyName("email")]
-        [SwaggerSchema(Description = "Correo del usuario para recibir el enlace de reseteo")]
         public string? Email { get; set; }
 
         public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
