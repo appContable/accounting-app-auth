@@ -37,7 +37,7 @@ namespace AccountCore.API.Controllers
                 return BadRequest(errors);
             }
 
-            var token = await _authService.Authentication(user.Email!, user.Password!);
+            var token = await _authService.Authentication(user.Login!, user.Password!);
 
             if (token.Success)
             {

@@ -7,12 +7,10 @@ using Microsoft.Extensions.Logging;
 using AutoMapper;
 using AccountCore.DAL.Auth.Models;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using AccountCore.DTO.Auth.ReturnsModels;
 using AccountCore.DTO.Auth.IServices.Result;
 using AccountCore.DTO.Auth.Entities.User;
 using System.Security.Cryptography;
-using Microsoft.AspNetCore.Mvc;
 using AccountCore.Services.Auth.Errors;
 using AccountCore.Services.Auth.Interfaces;
 using AccountCore.DTO.Auth.Validation;
@@ -26,14 +24,24 @@ namespace AccountCore.Services.Auth.Services
         private readonly ILogger<AuthService> _logger;
         private readonly IMapper _mapper;
         private readonly JwtSettings _jwtSettings;
+        private readonly EmailSettings _emailSettings;
         private readonly IUserRepository _userRepository;
+        private readonly IEmailService _emailService;
 
-        public AuthService(ILogger<AuthService> logger, IMapper mapper, IOptions<JwtSettings> jwtOptions, IUserRepository userRepository)
+        public AuthService(
+            ILogger<AuthService> logger,
+            IMapper mapper,
+            IOptions<JwtSettings> jwtOptions,
+            IOptions<EmailSettings> emailOptions,
+            IUserRepository userRepository,
+            IEmailService emailService)
         {
             _logger = logger;
             _mapper = mapper;
             _jwtSettings = jwtOptions.Value;
+            _emailSettings = emailOptions.Value;
             _userRepository = userRepository;
+            _emailService = emailService;
         }
 
         public async Task<ServiceResult<ReturnTokenDTO>> Authentication(string username, string password)
@@ -42,10 +50,20 @@ namespace AccountCore.Services.Auth.Services
             {
                 if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
                 {
-                    return ServiceResult<ReturnTokenDTO>.Error(ErrorsKey.Argument, "Email and password are required");
+                    return ServiceResult<ReturnTokenDTO>.Error(ErrorsKey.Argument, "Login and password are required");
                 }
 
-                var user = await _userRepository.GetByEmailAsync(username);
+                User? user = null;
+
+                if (username.IsValidEmail())
+                {
+                    user = await _userRepository.GetByEmailAsync(username);
+                }
+                else if (username.IsValidCuit())
+                {
+                    user = await _userRepository.GetByCuitAsync(username);
+                }
+
                 if (user == null)
                 {
                     return ServiceResult<ReturnTokenDTO>.Error(ErrorsKey.Argument, "Invalid User/Password");
@@ -77,12 +95,13 @@ namespace AccountCore.Services.Auth.Services
 
                 var claims = new List<Claim>()
                 {
-                    new Claim(ClaimTypes.Name, username),
+                    new Claim(ClaimTypes.Name, user.Email ?? username),
                     new Claim("FullName", fullName),
                     new Claim(ClaimsPrincipalExtensions.UserId, user.Id ?? ""),
                     new Claim(ClaimsPrincipalExtensions.Email, user.Email ?? ""),
                     new Claim(ClaimsPrincipalExtensions.FirstName, user.FirstName ?? ""),
-                    new Claim(ClaimsPrincipalExtensions.LastName, user.LastName ?? "")
+                    new Claim(ClaimsPrincipalExtensions.LastName, user.LastName ?? ""),
+                    new Claim(ClaimsPrincipalExtensions.Cuit, user.Cuit ?? string.Empty)
                 };
 
                 var roles = new List<string>();
@@ -242,11 +261,20 @@ namespace AccountCore.Services.Auth.Services
                 user.ExpirationTokenDate = DateTime.UtcNow.AddHours(1);
                 await _userRepository.UpdateAsync(user);
 
-                var urlBase = "http://localhost:4200"; // TODO: Get from ApiSettings
-                var link = $"{urlBase}/set-new-password?UserId={user.Id}&code={token}";
+                var uiBaseUrl = _emailSettings.UiBaseUrl?.TrimEnd('/') ?? string.Empty;
+                if (string.IsNullOrEmpty(uiBaseUrl))
+                {
+                    return ServiceResult<bool>.Error(ErrorsKey.InternalErrorCode, "UiBaseUrl is not configured");
+                }
 
-                // TODO: Send email with reset link
-                // await _emailService.Send(email, "Resetear Contraseña", link);
+                var link = $"{uiBaseUrl}/set-new-password?UserId={user.Id}&code={token}";
+                var emailResult = await _emailService.SendResetPasswordEmailAsync(user, link);
+
+                if (!emailResult.Success)
+                {
+                    return ServiceResult<bool>.Error(emailResult.Errors ??
+                        new List<KeyValuePair<string, string>> { new KeyValuePair<string, string>(ErrorsKey.InternalErrorCode.ToString(), "Unable to send reset email") });
+                }
 
                 return ServiceResult<bool>.Ok(true);
             }
