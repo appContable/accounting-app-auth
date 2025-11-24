@@ -1,20 +1,39 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
+using AccountCore.DTO.Auth.Validation;
+using Swashbuckle.AspNetCore.Annotations;
 
 namespace AccountCore.DTO.Auth.Entities
 {
-    public class AuthenticationDTO
+    public class AuthenticationDTO : IValidatableObject
     {
         /// <summary>
-        /// User mail
+        /// User login (email or CUIT)
         /// </summary>
-        [Required(ErrorMessage = "Email is required")]
-        [EmailAddress(ErrorMessage = "Invalid email format")]
-        public string? Email { get; set; }
+        [Required(ErrorMessage = "Login is required")]
+        [JsonPropertyName("login")]
+        [SwaggerSchema(Description = "Login del usuario (email o CUIT)")]
+        public string? Login { get; set; }
 
         /// <summary>
         /// User Password
         /// </summary>
         [Required(ErrorMessage = "Password is required")]
         public string? Password { get; set; }
+
+        public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+        {
+            if (string.IsNullOrWhiteSpace(Login))
+            {
+                yield return new ValidationResult("Login is required", new[] { nameof(Login) });
+                yield break;
+            }
+
+            var normalizedLogin = Login.Trim();
+            if (!normalizedLogin.IsValidEmail() && !normalizedLogin.IsValidCuit())
+            {
+                yield return new ValidationResult("Login must be a valid email or CUIT", new[] { nameof(Login) });
+            }
+        }
     }
 }
