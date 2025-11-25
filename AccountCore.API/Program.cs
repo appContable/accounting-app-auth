@@ -48,6 +48,8 @@ builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("JWT"))
 builder.Services.Configure<MongoDbSettings>(builder.Configuration.GetSection("MongoDB"));
 builder.Services.Configure<UsageSettings>(builder.Configuration.GetSection("Usage"));
 builder.Services.Configure<TestingSettings>(builder.Configuration.GetSection("Testing"));
+builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("Email"));
+
 
 // ---- MongoDB AuthContext ----
 builder.Services.AddScoped<AuthContext>(sp =>
@@ -72,6 +74,7 @@ builder.Services.AddSwaggerGen(o =>
 builder.Services.AddAutoMapper(typeof(Program));
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddHttpClient<IEmailService, EnvialoSimpleEmailService>();
 
 // Auth Repositories
 builder.Services.AddScoped<IUserRepository, UserRepository>();
