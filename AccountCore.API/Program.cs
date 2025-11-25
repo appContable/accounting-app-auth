@@ -21,10 +21,11 @@ using System.Text.Json.Serialization;
 using AccountCore.API.Auth;
 using AccountCore.API.Helpers;
 using AccountCore.API.Infraestructure;
+using AccountCore.API.Middleware;
+using AccountCore.API.Options;
+using AccountCore.DTO.Auth.Configuration;
 using AccountCore.Services.Auth.Interfaces;
 using AccountCore.Services.Auth.Repositories;
-using AccountCore.DTO.Auth.Configuration;
-using AccountCore.API.Middleware;
 using Microsoft.Extensions.Options;
 
 
@@ -46,6 +47,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("JWT"));
 builder.Services.Configure<MongoDbSettings>(builder.Configuration.GetSection("MongoDB"));
 builder.Services.Configure<UsageSettings>(builder.Configuration.GetSection("Usage"));
+builder.Services.Configure<TestingSettings>(builder.Configuration.GetSection("Testing"));
 
 // ---- MongoDB AuthContext ----
 builder.Services.AddScoped<AuthContext>(sp =>
@@ -123,7 +125,7 @@ builder.Services.AddAuthentication(options =>
 })
 .AddJwtBearer(x =>
 {
-    x.RequireHttpsMetadata = false;
+    x.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
     x.SaveToken = true;
     x.TokenValidationParameters = new TokenValidationParameters
     {
@@ -140,7 +142,16 @@ builder.Services.AddAuthentication(options =>
 // CORS
 builder.Services.AddCors(p => p.AddPolicy("corsapp", policy =>
 {
-    policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader();
+    var uiUrlBase = builder.Configuration["Api:UiUrlBase"];
+
+    if (!string.IsNullOrWhiteSpace(uiUrlBase))
+    {
+        policy.WithOrigins(uiUrlBase).AllowAnyMethod().AllowAnyHeader();
+    }
+    else
+    {
+        policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader();
+    }
 }));
 
 // Automapper singleton
@@ -150,8 +161,6 @@ builder.Services.AddSingleton(mapperConfig.CreateMapper());
 builder.Services.Configure<ParserSettings>(builder.Configuration.GetSection("Parser"));
 
 var app = builder.Build();
-
-app.MapGet("/debug/parser-config", (IOptions<ParserSettings> opts) => Results.Json(opts.Value));
 
 // Middleware
 app.UseCors("corsapp");
