@@ -144,16 +144,7 @@ builder.Services.AddAuthentication(options =>
 // CORS
 builder.Services.AddCors(p => p.AddPolicy("corsapp", policy =>
 {
-    var uiUrlBase = builder.Configuration["Api:UiUrlBase"];
-
-    if (!string.IsNullOrWhiteSpace(uiUrlBase))
-    {
-        policy.WithOrigins(uiUrlBase).AllowAnyMethod().AllowAnyHeader();
-    }
-    else
-    {
-        policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader();
-    }
+    policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader();
 }));
 
 // Automapper singleton
