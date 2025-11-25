@@ -1,11 +1,14 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Swashbuckle.AspNetCore.Annotations;
 using AccountCore.DTO.Parser;
 using AccountCore.Services.Parser.Interfaces;
 using AccountCore.DAL.Parser.Models;
 using UglyToad.PdfPig;
 using System.Text;
+using AccountCore.API.Options;
+using Microsoft.Extensions.Options;
 
 namespace AccountCore.API.Controllers
 {
@@ -14,18 +17,21 @@ namespace AccountCore.API.Controllers
     /// </summary>
     [ApiController]
     [Route("api/[controller]")]
-    [AllowAnonymous]
+    [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
     public class TestController : ControllerBase
     {
         private readonly IPdfParsingService _parserService;
         private readonly ICategorizationService _categorizationService;
+        private readonly bool _testingEnabled;
 
         public TestController(
             IPdfParsingService parserService,
-            ICategorizationService categorizationService)
+            ICategorizationService categorizationService,
+            IOptions<TestingSettings> testingOptions)
         {
             _parserService = parserService;
             _categorizationService = categorizationService;
+            _testingEnabled = testingOptions.Value.EnableTestEndpoints;
         }
 
         /// <summary>
@@ -38,6 +44,8 @@ namespace AccountCore.API.Controllers
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Solicitud inválida")]
         public async Task<IActionResult> ParsePdf([FromForm] UploadPdfRequest req, CancellationToken ct)
         {
+            if (!_testingEnabled) return NotFound();
+
             if (req.File is null || req.File.Length == 0)
                 return BadRequest("Archivo no válido.");
 
@@ -101,6 +109,8 @@ namespace AccountCore.API.Controllers
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Solicitud inválida")]
         public async Task<IActionResult> ParsePdfFull([FromForm] UploadPdfRequest req, CancellationToken ct)
         {
+            if (!_testingEnabled) return NotFound();
+
             if (req.File is null || req.File.Length == 0)
                 return BadRequest("Archivo no válido.");
             if (string.IsNullOrWhiteSpace(req.Bank))
@@ -159,6 +169,8 @@ namespace AccountCore.API.Controllers
         [SwaggerResponse(StatusCodes.Status200OK, "Resultado de categorización")]
         public async Task<IActionResult> TestCategorization([FromBody] TestCategorizationRequest request)
         {
+            if (!_testingEnabled) return NotFound();
+
             if (string.IsNullOrWhiteSpace(request.Bank) || string.IsNullOrWhiteSpace(request.Description))
                 return BadRequest("Bank y Description son requeridos.");
 
@@ -208,6 +220,8 @@ namespace AccountCore.API.Controllers
         [SwaggerOperation(Summary = "Health check del servicio")]
         public IActionResult Health()
         {
+            if (!_testingEnabled) return NotFound();
+
             var version = HttpContext.RequestServices
                 .GetRequiredService<IConfiguration>()["Api:Version"] ?? "1.0.0";
             

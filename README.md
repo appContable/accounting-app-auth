@@ -85,13 +85,14 @@ Todas las rutas requieren JWT con rol `admin`, salvo creación de usuario.
 
 ### Test (Solo en desarrollo)
 
-Endpoints disponibles únicamente cuando `Testing:EnableTestEndpoints` está habilitado.
+Endpoints disponibles únicamente cuando `Testing:EnableTestEndpoints` está habilitado **(false por defecto)** y requieren un JWT válido incluso en entornos de prueba.
 
 | Método | Ruta | Descripción | Parámetros | Cuerpo | Autorización |
 |-------|------|-------------|------------|-------|-------------|
-| POST | `/api/Test/parse-pdf` | Parsea PDF sin autenticación (testing) | - | `multipart/form-data` con `file`, `bank` | Ninguna |
-| POST | `/api/Test/test-categorization` | Prueba categorización con datos de ejemplo | - | `TestCategorizationRequest` | Ninguna |
-| GET | `/api/Test/health` | Health check del servicio | - | - | Ninguna |
+| POST | `/api/Test/parse-pdf` | Parsea PDF usando parsers internos (solo testing) | - | `multipart/form-data` con `file`, `bank` | **JWT Bearer** |
+| POST | `/api/Test/parse-pdf-full` | Parsea PDF completo con categorización base | - | `multipart/form-data` con `file`, `bank` | **JWT Bearer** |
+| POST | `/api/Test/test-categorization` | Prueba categorización con datos de ejemplo | - | `TestCategorizationRequest` | **JWT Bearer** |
+| GET | `/api/Test/health` | Health check del servicio | - | - | **JWT Bearer** |
 
 ### Version
 
