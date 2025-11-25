@@ -6,12 +6,28 @@ namespace AccountCore.DTO.Auth.Entities
 {
     public class AuthenticationDTO : IValidatableObject
     {
+        private string? _login;
+
         /// <summary>
         /// User login (email or CUIT)
         /// </summary>
         [Required(ErrorMessage = "Login is required")]
         [JsonPropertyName("login")]
-        public string? Login { get; set; }
+        public string? Login
+        {
+            get => _login;
+            set => _login = value;
+        }
+
+        /// <summary>
+        /// Alias para compatibilidad con clientes que envían "email" en lugar de "login".
+        /// </summary>
+        [JsonPropertyName("email")]
+        public string? Email
+        {
+            get => _login;
+            set => _login = value;
+        }
 
         /// <summary>
         /// User Password
