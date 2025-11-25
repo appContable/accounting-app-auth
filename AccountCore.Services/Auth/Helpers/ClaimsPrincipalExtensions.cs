@@ -9,6 +9,7 @@ public static class ClaimsPrincipalExtensions
     public const string Email = "Email";
     public const string FirstName = "FirstName";
     public const string LastName = "LastName";
+    public const string Cuit = "Cuit";
 
     internal static string GetEmail(this ClaimsPrincipal claimsPrincipal)
         => claimsPrincipal.FindFirst("Email")?.Value?.Trim() ?? string.Empty;

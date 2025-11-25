@@ -3,7 +3,6 @@ using AccountCore.DTO.Auth.IServices;
 using AccountCore.DAL.Auth.Models;
 using AutoMapper;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using AccountCore.DTO.Auth.Parameters;
 using AccountCore.DTO.Auth.Entities.User;
 using AccountCore.DTO.Auth.IServices.Result;
@@ -11,6 +10,9 @@ using Microsoft.AspNetCore.Http;
 using AccountCore.Services.Auth.Errors;
 using AccountCore.Services.Auth.Interfaces;
 using AccountCore.DTO.Auth.Validation;
+using AccountCore.DTO.Auth.Configuration;
+using Microsoft.Extensions.Options;
+using System.Text;
 
 namespace AccountCore.Services.Auth.Services
 {
@@ -20,18 +22,24 @@ namespace AccountCore.Services.Auth.Services
         private readonly IMapper _mapper;
         private readonly IUserRepository _userRepository;
         private readonly IRoleRepository _roleRepository;
+        private readonly IEmailService _emailService;
+        private readonly EmailSettings _emailSettings;
 
         public UserService(
-            ILogger<UserService> logger, 
-            IMapper mapper, 
+            ILogger<UserService> logger,
+            IMapper mapper,
             IUserRepository userRepository,
             IRoleRepository roleRepository,
+            IEmailService emailService,
+            IOptions<EmailSettings> emailOptions,
             IHttpContextAccessor context) : base(context)
         {
             _logger = logger;
             _mapper = mapper;
             _userRepository = userRepository;
             _roleRepository = roleRepository;
+            _emailService = emailService;
+            _emailSettings = emailOptions.Value;
         }
 
         /// <inheritdoc/>
@@ -58,6 +66,7 @@ namespace AccountCore.Services.Auth.Services
                 {
                     FirstName = userDto.FirstName,
                     LastName = userDto.LastName,
+                    Cuit = userDto.Cuit,
                     Email = userDto.Email,
                     CreationDate = DateTime.UtcNow,
                     Id = Guid.NewGuid().ToString(),
@@ -75,7 +84,7 @@ namespace AccountCore.Services.Auth.Services
                     var newRole = roles.FirstOrDefault(r => r.RoleKey == newRoleId);
                     if (newRole == null)
                     {
-                        return ServiceResult<UserDTO>.Error(ErrorsKey.Argument, "Invalid Role");
+                        return ServiceResult<UserDTO>.Error(ErrorsKey.Argument, $"Invalid Roles: {newRoleId}");
                     }
 
                     user.AddRole(newRole);
@@ -84,10 +93,20 @@ namespace AccountCore.Services.Auth.Services
                 var createdUser = await _userRepository.CreateAsync(user);
                 var response = _mapper.Map<UserDTO>(createdUser);
 
-                // TODO: Send welcome email
-                // var urlBase = _configuration["UiUrlBase"];
-                // var link = $"{urlBase}/set-new-password?UserId={response.Id}&code={token}";
-                // await _emailService.Send(userDto.Email, "Bienvenido", link);
+                var uiBaseUrl = _emailSettings.UiBaseUrl?.TrimEnd('/') ?? string.Empty;
+                if (string.IsNullOrEmpty(uiBaseUrl))
+                {
+                    return ServiceResult<UserDTO>.Error(ErrorsKey.InternalErrorCode, "UiBaseUrl is not configured");
+                }
+
+                var tokenBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(token));
+                var link = $"{uiBaseUrl}/set-password/{response.Id}/{tokenBase64}";
+                var welcomeEmailResult = await _emailService.SendWelcomeEmailAsync(createdUser, link);
+                if (!welcomeEmailResult.Success)
+                {
+                    return ServiceResult<UserDTO>.Error(welcomeEmailResult.Errors ??
+                        new List<KeyValuePair<string, string>> { new KeyValuePair<string, string>(ErrorsKey.InternalErrorCode.ToString(), "Unable to send welcome email") });
+                }
 
                 return ServiceResult<UserDTO>.Ok(response);
             }
@@ -161,6 +180,7 @@ namespace AccountCore.Services.Auth.Services
 
                 user.FirstName = userDto.FirstName;
                 user.LastName = userDto.LastName;
+                user.Cuit = userDto.Cuit;
                 user.Email = userDto.Email;
 
                 var roles = await _roleRepository.GetRolesByIdsAsync(userDto.RoleIds ?? Array.Empty<string>());
@@ -298,14 +318,19 @@ namespace AccountCore.Services.Auth.Services
                 errors.Add(new KeyValuePair<string, string>(ErrorsKey.EmailExists.ToString(), "Email already exists"));
             }
 
+            if (await _userRepository.CuitExistsAsync(userDto.Cuit, userId))
+            {
+                errors.Add(new KeyValuePair<string, string>(ErrorsKey.Argument.ToString(), "CUIT already exists"));
+            }
+
             var validRoles = await _roleRepository.GetEnabledRolesAsync();
-            var validRoleIds = validRoles.Select(r => r.Id).ToHashSet();
+            var validRoleIds = validRoles.Select(r => r.RoleKey).ToHashSet();
             
             foreach (var roleId in userDto.RoleIds ?? Array.Empty<string>())
             {
                 if (!validRoleIds.Contains(roleId))
                 {
-                    errors.Add(new KeyValuePair<string, string>(ErrorsKey.InvalidRol.ToString(), $"Invalid role: {roleId}"));
+                    errors.Add(new KeyValuePair<string, string>(ErrorsKey.InvalidRol.ToString(), $"Invalid roleamd: {roleId}"));
                 }
             }
 

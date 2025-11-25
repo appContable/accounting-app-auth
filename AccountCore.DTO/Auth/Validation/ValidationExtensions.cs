@@ -37,6 +37,17 @@ namespace AccountCore.DTO.Auth.Validation
                    password.Any(char.IsDigit);
         }
 
+        public static bool IsValidCuit(this string cuit)
+        {
+            if (string.IsNullOrWhiteSpace(cuit))
+            {
+                return false;
+            }
+
+            var trimmed = cuit.Trim();
+            return trimmed.Length == 11 && trimmed.All(char.IsDigit);
+        }
+
         public static List<ValidationResult> ValidateObject(object obj)
         {
             var context = new ValidationContext(obj);

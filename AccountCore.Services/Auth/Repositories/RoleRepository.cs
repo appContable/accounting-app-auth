@@ -23,7 +23,7 @@ namespace AccountCore.Services.Auth.Repositories
         public async Task<IEnumerable<Role>> GetRolesByIdsAsync(IEnumerable<string> roleIds)
         {
             return await _context.Roles
-                .Where(r => r.IsEnabled && roleIds.Contains(r.Id))
+                .Where(r => r.IsEnabled && roleIds.Contains(r.RoleKey))
                 .ToListAsync();
         }
 

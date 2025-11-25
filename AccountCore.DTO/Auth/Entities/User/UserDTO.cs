@@ -8,6 +8,8 @@
 
         public string? LastName { get; set; }
 
+        public string Cuit { get; set; } = null!;
+
         public string Email { get; set; } = null!;
         public string? RefreshToken { get; set; }
         public DateTime? RefreshTokenExpiryTime { get; set; }

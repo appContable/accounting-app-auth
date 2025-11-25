@@ -49,9 +49,9 @@ Para habilitar HTTPS, defina `HttpsPort` en la configuración; el middleware `Us
 
 | Método | Ruta | Descripción | Parámetros | Cuerpo | Autorización |
 |-------|------|-------------|------------|-------|-------------|
-| POST | `/api/Auth/authentication` | Autentica usuario y retorna JWT + refresh token | - | `AuthenticationDTO` (email, password) | Ninguna |
+| POST | `/api/Auth/authentication` | Autentica usuario y retorna JWT + refresh token | - | `AuthenticationDTO` (email o CUIT, password) | Ninguna |
 | POST | `/api/Auth/SetNewPassword/{userId}/{codeBase64}` | Confirma restablecimiento de contraseña | `userId`, `codeBase64` | `SetPasswordDTO` | Ninguna |
-| POST | `/api/Auth/ResetPassword` | Envía instrucciones de reseteo por email | - | campo `email` (form-data) | Ninguna |
+| POST | `/api/Auth/ResetPassword` | Envía instrucciones de reseteo por email | - | `ResetPasswordRequest` (email) | Ninguna |
 | POST | `/api/Auth/refresh-token` | Genera un nuevo JWT usando un refresh token válido | - | `TokenModelDTO` (token, refreshToken) | Ninguna |
 
 ### Parser
@@ -85,13 +85,14 @@ Todas las rutas requieren JWT con rol `admin`, salvo creación de usuario.
 
 ### Test (Solo en desarrollo)
 
-Endpoints disponibles únicamente cuando `Testing:EnableTestEndpoints` está habilitado.
+Endpoints disponibles únicamente cuando `Testing:EnableTestEndpoints` está habilitado **(false por defecto)** y requieren un JWT válido incluso en entornos de prueba.
 
 | Método | Ruta | Descripción | Parámetros | Cuerpo | Autorización |
 |-------|------|-------------|------------|-------|-------------|
-| POST | `/api/Test/parse-pdf` | Parsea PDF sin autenticación (testing) | - | `multipart/form-data` con `file`, `bank` | Ninguna |
-| POST | `/api/Test/test-categorization` | Prueba categorización con datos de ejemplo | - | `TestCategorizationRequest` | Ninguna |
-| GET | `/api/Test/health` | Health check del servicio | - | - | Ninguna |
+| POST | `/api/Test/parse-pdf` | Parsea PDF usando parsers internos (solo testing) | - | `multipart/form-data` con `file`, `bank` | **JWT Bearer** |
+| POST | `/api/Test/parse-pdf-full` | Parsea PDF completo con categorización base | - | `multipart/form-data` con `file`, `bank` | **JWT Bearer** |
+| POST | `/api/Test/test-categorization` | Prueba categorización con datos de ejemplo | - | `TestCategorizationRequest` | **JWT Bearer** |
+| GET | `/api/Test/health` | Health check del servicio | - | - | **JWT Bearer** |
 
 ### Version
 
@@ -104,10 +105,10 @@ Endpoints disponibles únicamente cuando `Testing:EnableTestEndpoints` está hab
 
 ### Auth DTOs
 
-**AuthenticationDTO**
+**AuthenticationDTO** (la clave `email` acepta email o CUIT)
 ```json
 {
-  "email": "usuario@ejemplo.com",
+  "email": "20123456789",
   "password": "contraseña123"
 }
 ```

@@ -632,16 +632,7 @@ namespace AccountCore.Services.Parser.Parsers
             var page1 = ExtractPageText(full, 1);
             var (openingP1, closingP1) = ExtractHeaderBalances(page1);
 
-            if (!string.IsNullOrWhiteSpace(page1))
-                result.Warnings.Add("[raw.page1] " + Trunc(page1, 1200));
-            result.Warnings.Add("[raw.sample] " + Trunc(full, 1000));
-
             var (pStart, pEnd) = ExtractPeriodFromPage1(page1);
-            var headerDbg = SliceHeaderZone(page1);
-            result.Warnings.Add("[debug.page1_header] " + Trunc(headerDbg, 600));
-
-            var moneyInHeader = RxMoneyHeader.Matches(headerDbg);
-            result.Warnings.Add("[debug.header_moneys] " + string.Join(" | ", moneyInHeader.Select(m => m.Value)));
 
             var (accDigits, cbu, cuit) = ExtractAccountMetaFromPage1(page1);
             if (!string.IsNullOrEmpty(accDigits)) result.Warnings.Add($"[meta.accountNumberDigits] {accDigits}");
@@ -654,10 +645,6 @@ namespace AccountCore.Services.Parser.Parsers
 
             // Anclas de fecha
             var matches = RxDateLineAnchor.Matches(full);
-            result.Warnings.Add($"[debug.blocks_found] {matches.Count}");
-            result.Warnings.Add("[debug.date_lines] " +
-                string.Join(" | ", matches.Select(m => Regex.Replace(m.Groups["d"].Value, @"\s*", ""))));
-
             if (matches.Count == 0)
             {
                 result.Warnings.Add("No se detectaron líneas con fecha al inicio.");
@@ -696,10 +683,7 @@ namespace AccountCore.Services.Parser.Parsers
                 }
 
                 if (amts.Count < 2)
-                {
-                    result.Warnings.Add($"[debug.skipped_no_2_amounts_at] idx={start} text='{TrimForWarn(normalized)}'");
                     continue;
-                }
 
                 int cutEndNorm = amts[1].Index + amts[1].Length;
                 var blockNormCut = normalized.Substring(0, cutEndNorm);
@@ -719,14 +703,6 @@ namespace AccountCore.Services.Parser.Parsers
 
                 var blockRawForDebug = blockLarge.TrimEnd();
                 if (string.IsNullOrWhiteSpace(blockDesc)) continue;
-
-                bool dumpThis = (i < 5) || (i >= matches.Count - 5);
-                if (dumpThis)
-                {
-                    var detectPreview = TightenForNumbers(blockDesc);
-                    result.Warnings.Add($"[debug.block_pre_{i + 1}] " + Trunc(blockDesc.Replace("\n", " "), 300));
-                    result.Warnings.Add($"[debug.block_post_{i + 1}] " + Trunc(detectPreview.Replace("\n", " "), 300));
-                }
 
                 var mDate = RxDateLineAnchor.Match(blockDesc);
                 if (!mDate.Success || mDate.Index != 0) continue;
@@ -776,11 +752,7 @@ namespace AccountCore.Services.Parser.Parsers
                     {
                         var ab = TryParseAmountAndBalance(blockRawForDebug);
                         if (ab == null)
-                        {
-                            if (dumpThis)
-                                result.Warnings.Add($"[debug.skipped_block_lt2_amounts] text='{Trunc(detect.Replace("\n", " "), 300)}'");
                             continue;
-                        }
                         (amount, balance) = ab.Value; usedFallbackThisBlock = true; fallbackUsedCount++;
                     }
                 }
@@ -788,11 +760,7 @@ namespace AccountCore.Services.Parser.Parsers
                 {
                     var ab = TryParseAmountAndBalance(blockRawForDebug);
                     if (ab == null)
-                    {
-                        if (dumpThis)
-                            result.Warnings.Add($"[debug.skipped_block_lt2_amounts] text='{Trunc(detect.Replace("\n", " "), 300)}'");
                         continue;
-                    }
                     (amount, balance) = ab.Value; usedFallbackThisBlock = true; fallbackUsedCount++;
                 }
 
@@ -923,17 +891,6 @@ namespace AccountCore.Services.Parser.Parsers
                 account.OpeningBalance = txs[0].Balance - txs[0].Amount;
             if (!account.ClosingBalance.HasValue && txs.Count > 0)
                 account.ClosingBalance = txs[^1].Balance;
-
-            if (txs.Count == 0 && matches.Count > 0)
-            {
-                for (int k = 0; k < Math.Min(matches.Count, 3); k++)
-                {
-                    int s = matches[k].Index;
-                    int e = (k + 1 < matches.Count) ? matches[k + 1].Index : full.Length;
-                    var blk = full.Substring(s, Math.Min(220, e - s)).Replace("\n", " ");
-                    result.Warnings.Add($"[debug.block_preview_{k + 1}] {Trunc(blk, 220)}");
-                }
-            }
 
             // Chequeo suave de balances (solo warning)
             if (txs.Count > 0 && account.OpeningBalance.HasValue && account.ClosingBalance.HasValue)
