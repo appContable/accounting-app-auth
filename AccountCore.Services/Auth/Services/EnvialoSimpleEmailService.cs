@@ -1,5 +1,7 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text;
+using System.Text.Json;
 using AccountCore.DAL.Auth.Models;
 using AccountCore.DTO.Auth.Configuration;
 using AccountCore.DTO.Auth.IServices.Result;
@@ -25,16 +27,13 @@ namespace AccountCore.Services.Auth.Services
             _logger = logger;
             _settings = emailOptions.Value;
 
-            // Base URL segun doc oficial:
-            // https://api.envialosimple.email/api/v1/mail/send
-            if (!string.IsNullOrWhiteSpace(_settings.BaseUrl))
-            {
-                _httpClient.BaseAddress = new Uri(_settings.BaseUrl);
-            }
-            else
-            {
-                _httpClient.BaseAddress = new Uri("https://api.envialosimple.email/");
-            }
+            // Base url EXACTA del servicio
+            // POST https://api.envialosimple.email/api/v1/mail/send
+            var baseUrl = string.IsNullOrWhiteSpace(_settings.BaseUrl)
+                ? "https://api.envialosimple.email/"
+                : _settings.BaseUrl.TrimEnd('/') + "/";
+
+            _httpClient.BaseAddress = new Uri(baseUrl);
 
             if (!string.IsNullOrWhiteSpace(_settings.ApiKey))
             {
@@ -88,46 +87,61 @@ namespace AccountCore.Services.Auth.Services
                 {
                     return ServiceResult<bool>.Error(
                         ErrorsKey.InternalErrorCode,
-                        "Email settings are not configured");
+                        "Email API key is not configured");
                 }
 
-                // "from" y "to" segun doc (pueden ser string u objeto)
-                var requestBody = new
+                if (string.IsNullOrWhiteSpace(_settings.FromEmail))
                 {
-                    // Puede ser tambien string: $"{_settings.FromName} <{_settings.FromEmail}>"
-                    from = new
-                    {
-                        email = _settings.FromEmail,
-                        name = _settings.FromName
-                    },
-                    to = new[]
-                    {
-                        new
-                        {
-                            email = user.Email,
-                            name = $"{user.FirstName} {user.LastName}".Trim()
-                        }
-                    },
-                    subject,
-                    // Al menos uno de estos debe venir informado: html / text / templateID
-                    html = htmlBody,
-                    templateID = string.IsNullOrWhiteSpace(templateId) ? null : templateId,
+                    return ServiceResult<bool>.Error(
+                        ErrorsKey.InternalErrorCode,
+                        "FromEmail is not configured");
+                }
 
-                    // Variables para usar en la plantilla o en el HTML con {{firstName}}, etc.
-                    // La API espera "context" o "substitutions"
-                    context = new
-                    {
-                        firstName = user.FirstName,
-                        lastName = user.LastName,
-                        cuit = user.Cuit,
-                        action_url = actionLink
-                    }
+                // "from" y "to" usando los formatos que la doc muestra
+                // https://api.envialosimple.email/api/v1/mail/send
+                var fromValue = string.IsNullOrWhiteSpace(_settings.FromName)
+                    ? _settings.FromEmail
+                    : $"{_settings.FromName} <{_settings.FromEmail}>";
+
+                var toValue = string.IsNullOrWhiteSpace(user.FirstName) && string.IsNullOrWhiteSpace(user.LastName)
+                    ? user.Email
+                    : $"{user.FirstName} {user.LastName} <{user.Email}>";
+
+                // Armamos el payload siguiendo la doc:
+                // from, to, subject, html (o templateID), context/substitutions
+                var requestBody = new Dictionary<string, object?>
+                {
+                    ["from"] = fromValue,
+                    ["to"] = toValue,
+                    ["subject"] = subject
                 };
 
-                // OJO con el path: tiene que ser /api/v1/mail/send
-                // Si BaseUrl = "https://api.envialosimple.email/"
-                // entonces aca va "api/v1/mail/send"
-                var response = await _httpClient.PostAsJsonAsync("api/v1/mail/send", requestBody);
+                if (!string.IsNullOrWhiteSpace(templateId))
+                {
+                    // Usar plantilla
+                    requestBody["templateID"] = templateId;
+                }
+                else
+                {
+                    // Usar HTML directo
+                    requestBody["html"] = htmlBody;
+                }
+
+                // Variables para reemplazar en asunto/html/plantilla
+                // Usamos "context" (recomendado por la doc)
+                requestBody["context"] = new
+                {
+                    firstName = user.FirstName,
+                    lastName = user.LastName,
+                    cuit = user.Cuit,
+                    action_url = actionLink
+                };
+
+                var json = JsonSerializer.Serialize(requestBody);
+                using var content = new StringContent(json, Encoding.UTF8);
+                content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+
+                var response = await _httpClient.PostAsync("api/v1/mail/send", content);
 
                 if (response.IsSuccessStatusCode)
                 {
@@ -135,11 +149,14 @@ namespace AccountCore.Services.Auth.Services
                 }
 
                 var responseBody = await response.Content.ReadAsStringAsync();
+
                 _logger.LogError(
-                    "EnvialoSimple send failed with status {Status}. Response: {Body}",
+                    "EnvialoSimple send failed. Status: {StatusCode}. Body: {Body}",
                     response.StatusCode,
                     responseBody);
 
+                // Opcional: intentar parsear el código de error de EnvialoSimple
+                // para devolver algo más amigable
                 return ServiceResult<bool>.Error(
                     ErrorsKey.InternalErrorCode,
                     "Failed to send transactional email");
@@ -147,7 +164,9 @@ namespace AccountCore.Services.Auth.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "EnvialoSimpleEmailService.SendAsync");
-                return ServiceResult<bool>.Error(ErrorsKey.InternalErrorCode, ex.Message);
+                return ServiceResult<bool>.Error(
+                    ErrorsKey.InternalErrorCode,
+                    ex.Message);
             }
         }
 

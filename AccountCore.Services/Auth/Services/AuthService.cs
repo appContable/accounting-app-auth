@@ -268,7 +268,7 @@ namespace AccountCore.Services.Auth.Services
                 }
 
                 var tokenBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(token));
-                var link = $"{uiBaseUrl}/set-new-password?UserId={user.Id}&code={tokenBase64}";
+                var link = $"{uiBaseUrl}/set-password/{user.Id}/{tokenBase64}";
                 var emailResult = await _emailService.SendResetPasswordEmailAsync(user, link);
 
                 if (!emailResult.Success)

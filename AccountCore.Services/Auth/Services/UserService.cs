@@ -98,7 +98,7 @@ namespace AccountCore.Services.Auth.Services
                     return ServiceResult<UserDTO>.Error(ErrorsKey.InternalErrorCode, "UiBaseUrl is not configured");
                 }
 
-                var link = $"{uiBaseUrl}/set-new-password?UserId={response.Id}&code={token}";
+                var link = $"{uiBaseUrl}/set-password/{response.Id}/{token}";
                 var welcomeEmailResult = await _emailService.SendWelcomeEmailAsync(createdUser, link);
                 if (!welcomeEmailResult.Success)
                 {
