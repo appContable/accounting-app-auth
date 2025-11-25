@@ -12,6 +12,7 @@ using AccountCore.Services.Auth.Interfaces;
 using AccountCore.DTO.Auth.Validation;
 using AccountCore.DTO.Auth.Configuration;
 using Microsoft.Extensions.Options;
+using System.Text;
 
 namespace AccountCore.Services.Auth.Services
 {
@@ -98,7 +99,8 @@ namespace AccountCore.Services.Auth.Services
                     return ServiceResult<UserDTO>.Error(ErrorsKey.InternalErrorCode, "UiBaseUrl is not configured");
                 }
 
-                var link = $"{uiBaseUrl}/set-password/{response.Id}/{token}";
+                var tokenBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(token));
+                var link = $"{uiBaseUrl}/set-password/{response.Id}/{tokenBase64}";
                 var welcomeEmailResult = await _emailService.SendWelcomeEmailAsync(createdUser, link);
                 if (!welcomeEmailResult.Success)
                 {
