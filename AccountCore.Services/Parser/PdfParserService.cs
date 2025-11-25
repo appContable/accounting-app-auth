@@ -50,7 +50,7 @@ namespace AccountCore.Services.Parser
         private readonly int _monthlyLimit;
 
         private readonly string? _dumpDir;
-        private readonly bool _enableDump;
+        //private readonly bool _enableDump;
 
         public PdfParserService(
             IParseUsageRepository usageRepository,
@@ -61,9 +61,9 @@ namespace AccountCore.Services.Parser
             _monthlyLimit = usageOptions.Value.MonthlyLimit;
 
             // Preferir variable de entorno PARSER_DUMP_DIR si existe; si no, usar ParserSettings.DumpDir
-            var envDump = Environment.GetEnvironmentVariable("PARSER_DUMP_DIR");
-            _dumpDir = !string.IsNullOrWhiteSpace(envDump) ? envDump : parser.Value.DumpDir;
-            _enableDump = parser.Value.EnableDump || !string.IsNullOrWhiteSpace(_dumpDir);
+            //var envDump = Environment.GetEnvironmentVariable("PARSER_DUMP_DIR");
+            //_dumpDir = !string.IsNullOrWhiteSpace(envDump) ? envDump : parser.Value.DumpDir;
+            //_enableDump = parser.Value.EnableDump || !string.IsNullOrWhiteSpace(_dumpDir);
 
             // Parsers registrados
             _parsers = new Dictionary<string, IBankStatementParser>(StringComparer.OrdinalIgnoreCase)
@@ -80,6 +80,7 @@ namespace AccountCore.Services.Parser
 
         public async Task<ParseResult?> ParseAsync(Stream pdfStream, string bank, string userId, CancellationToken ct)
         {
+
             // Límite mensual
             var now = DateTime.UtcNow;
             var monthStart = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
@@ -108,10 +109,10 @@ namespace AccountCore.Services.Parser
 
             // runId y dumps
             var runId = Guid.NewGuid().ToString("N");
-            if (_enableDump && !string.IsNullOrWhiteSpace(_dumpDir))
-            {
-                SafeDump(_dumpDir, runId, "pre.txt", fullText);
-            }
+            // if (_enableDump && !string.IsNullOrWhiteSpace(_dumpDir))
+            // {
+            //     SafeDump(_dumpDir, runId, "pre.txt", fullText);
+            // }
 
             // Seleccionar parser
             if (!_parsers.TryGetValue(bank, out var parser))
@@ -119,22 +120,22 @@ namespace AccountCore.Services.Parser
 
             // Ejecutar parser (sin callback de progreso en esta versión, para compatibilidad)
             var result = parser.Parse(fullText);
-            if (result != null)
-            {
-                result.Warnings ??= new List<string>();
-                result.Warnings.Insert(0, $"[run] id={runId} bank={bank} user={userId} at={DateTime.UtcNow:o} len={fullText?.Length ?? 0}");
+            // if (result != null)
+            // {
+            //     result.Warnings ??= new List<string>();
+            //     result.Warnings.Insert(0, $"[run] id={runId} bank={bank} user={userId} at={DateTime.UtcNow:o} len={fullText?.Length ?? 0}");
 
-                var head = fullText ?? string.Empty;
-                var preview = head.Length <= 1200 ? head : head.Substring(0, 1200) + " …[truncated]";
-                // Mantengo tu estilo de normalización para que Swagger se vea consistente
-                result.Warnings.Insert(1, "[fulltext.head] " + preview.Replace("\r", " ").Replace("\n", " \\n "));
+            //     var head = fullText ?? string.Empty;
+            //     var preview = head.Length <= 1200 ? head : head.Substring(0, 1200) + " …[truncated]";
+            //     // Mantengo tu estilo de normalización para que Swagger se vea consistente
+            //     result.Warnings.Insert(1, "[fulltext.head] " + preview.Replace("\r", " ").Replace("\n", " \\n "));
 
-                if (_enableDump && !string.IsNullOrWhiteSpace(_dumpDir))
-                {
-                    var warningsJoined = string.Join(Environment.NewLine, result.Warnings);
-                    SafeDump(_dumpDir, runId, "warnings.log", warningsJoined);
-                }
-            }
+            //     if (_enableDump && !string.IsNullOrWhiteSpace(_dumpDir))
+            //     {
+            //         var warningsJoined = string.Join(Environment.NewLine, result.Warnings);
+            //         SafeDump(_dumpDir, runId, "warnings.log", warningsJoined);
+            //     }
+            // }
 
             // Registrar uso
             if (result != null)

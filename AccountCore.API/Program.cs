@@ -29,7 +29,6 @@ using AccountCore.Services.Auth.Repositories;
 using Microsoft.Extensions.Options;
 
 
-//
 // ---- Fix GUID legacy para UserCategoryRule (Mongo driver) ----
 if (!BsonClassMap.IsClassMapRegistered(typeof(UserCategoryRule)))
 {
@@ -161,7 +160,7 @@ builder.Services.AddCors(p => p.AddPolicy("corsapp", policy =>
 var mapperConfig = new MapperConfiguration(cfg => cfg.AddProfile(new MappingProfile()));
 builder.Services.AddSingleton(mapperConfig.CreateMapper());
 
-builder.Services.Configure<ParserSettings>(builder.Configuration.GetSection("Parser"));
+//builder.Services.Configure<ParserSettings>(builder.Configuration.GetSection("Parser"));
 
 var app = builder.Build();
 
@@ -175,17 +174,17 @@ app.UseSwagger();
 app.UseSwaggerUI();
 
 // Configurar Swagger UI para mostrar endpoints de testing
-if (app.Environment.IsDevelopment() ||
-    app.Configuration.GetValue<bool>("Testing:EnableTestEndpoints"))
-{
-    app.UseSwaggerUI(c =>
-    {
-        c.SwaggerEndpoint("/swagger/v1/swagger.json", "AccountCore API v1");
-        c.DisplayRequestDuration();
-        c.EnableTryItOutByDefault();
-        c.DocExpansion(Swashbuckle.AspNetCore.SwaggerUI.DocExpansion.List);
-    });
-}
+// if (app.Environment.IsDevelopment() ||
+//     app.Configuration.GetValue<bool>("Testing:EnableTestEndpoints"))
+// {
+//     app.UseSwaggerUI(c =>
+//     {
+//         c.SwaggerEndpoint("/swagger/v1/swagger.json", "AccountCore API v1");
+//         c.DisplayRequestDuration();
+//         c.EnableTryItOutByDefault();
+//         c.DocExpansion(Swashbuckle.AspNetCore.SwaggerUI.DocExpansion.List);
+//     });
+// }
 
 var httpsPort = builder.Configuration.GetValue<int?>("HttpsPort");
 if (httpsPort.HasValue)
@@ -198,4 +197,3 @@ app.UseAuthorization();
 
 app.MapControllers();
 app.Run();
-
