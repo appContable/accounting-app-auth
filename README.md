@@ -49,7 +49,7 @@ Para habilitar HTTPS, defina `HttpsPort` en la configuración; el middleware `Us
 
 | Método | Ruta | Descripción | Parámetros | Cuerpo | Autorización |
 |-------|------|-------------|------------|-------|-------------|
-| POST | `/api/Auth/authentication` | Autentica usuario y retorna JWT + refresh token | - | `AuthenticationDTO` (email o CUIT, password) | Ninguna |
+| POST | `/api/Auth/authentication` | Autentica usuario y retorna JWT + refresh token | - | `AuthenticationDTO` (login/email o CUIT, password) | Ninguna |
 | POST | `/api/Auth/SetNewPassword/{userId}/{codeBase64}` | Confirma restablecimiento de contraseña | `userId`, `codeBase64` | `SetPasswordDTO` | Ninguna |
 | POST | `/api/Auth/ResetPassword` | Envía instrucciones de reseteo por email | - | `ResetPasswordRequest` (email) | Ninguna |
 | POST | `/api/Auth/refresh-token` | Genera un nuevo JWT usando un refresh token válido | - | `TokenModelDTO` (token, refreshToken) | Ninguna |
@@ -105,7 +105,7 @@ Endpoints disponibles únicamente cuando `Testing:EnableTestEndpoints` está hab
 
 ### Auth DTOs
 
-**AuthenticationDTO** (la clave `email` acepta email o CUIT)
+**AuthenticationDTO** (las claves `login` o `email` aceptan email o CUIT)
 ```json
 {
   "email": "20123456789",
