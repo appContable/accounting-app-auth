@@ -30,23 +30,23 @@ namespace AccountCore.Services.Parser.Parsers
 
         // ===== Regex =====
         private static readonly Regex RxPeriodo = new(
-            @"RESUMEN\s+DE\s+CUENTA\s+DESDE\s+(\d{2}/\d{2}/\d{2})\s+HASTA\s+(\d{2}/\d{2}/\d{2})",
+            @"RESUMEN\s+DE\s+CUENTA\s+(?:DESDE\s+|DEL\s+)(\d{2}/\d{2}/\d{2,4})\s+(?:HASTA\s+|AL\s+)(\d{2}/\d{2}/\d{2,4})",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
         private static readonly Regex RxNumeroCuenta = new(
-            @"NUMERO\s+DE\s+CUENTA\s+([0-9][0-9\-/]+)",
+            @"(?:NUMERO\s+DE\s+CUENTA|Nro\.:)\s*([0-9][0-9\-/]+)",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
         private static readonly Regex RxCBU = new(
-            @"CLAVE\s+BANCARIA\s+UNICA\s+([0-9 ]{10,})",
+            @"(?:CLAVE\s+BANCARIA\s+UNICA|CBU)\s*([0-9 ]{10,})",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
         private static readonly Regex RxOpeningBalance = new(
-            @"Saldo\s+del\s+per[ií]odo\s+anterior\s+([0-9\.\,]+)\s*-?",
+            @"Saldo\s+del\s+per[ií]odo\s+anterior\s+(?<val>[0-9\.\,]+)\s*(?<sign>-)?",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
         private static readonly Regex RxClosingBalance = new(
-            @"SALDO\s+PERIODO\s+ACTUAL\s+([0-9\.\,]+)\s*-?",
+            @"SALDO\s+PERIODO\s+ACTUAL\s+(?<val>[0-9\.\,]+)\s*(?<sign>-)?",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
         private static readonly Regex RxResumenLineaCuenta = new(
@@ -114,7 +114,9 @@ namespace AccountCore.Services.Parser.Parsers
 
         private static DateTime? ParseDmy(string s)
         {
-            if (DateTime.TryParseExact(s, "dd/MM/yy", CultureInfo.GetCultureInfo("es-AR"),
+            if (string.IsNullOrWhiteSpace(s)) return null;
+            string[] formats = { "dd/MM/yy", "dd/MM/yyyy" };
+            if (DateTime.TryParseExact(s.Trim(), formats, CultureInfo.GetCultureInfo("es-AR"),
                                        DateTimeStyles.None, out var d))
                 return d;
             return null;
@@ -132,6 +134,14 @@ namespace AccountCore.Services.Parser.Parsers
             var list = new List<Anchor>();
             foreach (Match m in RxNumeroCuenta.Matches(text))
                 list.Add(new Anchor(m.Groups[1].Value.Trim(), m.Index));
+
+            if (list.Count == 0)
+            {
+                // Fallback: buscar "CUENTA CORRIENTE" si no hay match de "Nro"
+                int idx = text.IndexOf("CUENTA CORRIENTE", StringComparison.OrdinalIgnoreCase);
+                if (idx >= 0) list.Add(new Anchor("Default", idx));
+            }
+
             return list.OrderBy(t => t.StartIdx).ToList();
         }
 
@@ -159,6 +169,7 @@ namespace AccountCore.Services.Parser.Parsers
                 var curr = mon.Equals("U$S", StringComparison.OrdinalIgnoreCase) ? "USD" : "ARS";
                 if (!dict.ContainsKey(acct)) dict[acct] = curr;
             }
+            if (!dict.ContainsKey("Default")) dict["Default"] = "ARS";
             return dict;
         }
 
@@ -177,12 +188,19 @@ namespace AccountCore.Services.Parser.Parsers
             return accountSlice[start.Index..];
         }
 
-        // Monto "es-AR" -> decimal
+        // Monto "es-AR" -> decimal (soporta signo al final)
         private static decimal? ParseArAmount(string s)
         {
             if (string.IsNullOrWhiteSpace(s)) return null;
-            if (decimal.TryParse(s, NumberStyles.Number, CultureInfo.GetCultureInfo("es-AR"), out var d))
-                return d;
+            string clean = s.Trim();
+            bool negative = false;
+            if (clean.EndsWith("-"))
+            {
+                negative = true;
+                clean = clean.TrimEnd('-').Trim();
+            }
+            if (decimal.TryParse(clean, NumberStyles.Number, CultureInfo.GetCultureInfo("es-AR"), out var d))
+                return negative ? -d : d;
             return null;
         }
 
@@ -215,7 +233,7 @@ namespace AccountCore.Services.Parser.Parsers
             return TxType.Debit;
         }
 
-        private static IEnumerable<Transaction> BuildTransactionsFromRegion(string region, string account, List<string> warnings)
+        private static IEnumerable<Transaction> BuildTransactionsFromRegion(string region, string account, List<string> warnings, decimal? initialPrevBal = null)
         {
             var list = new List<Transaction>();
             var lines = region.Split('\n')
@@ -224,40 +242,74 @@ namespace AccountCore.Services.Parser.Parsers
                               .ToList();
 
             int i = 0;
-            decimal? prevBal = null;
+            decimal? prevBal = initialPrevBal;
 
             while (i < lines.Count)
             {
                 var line = lines[i];
 
-                var m = RxTxnLine.Match(line);
-                if (!m.Success)
+                // Regex flexible para capturar fecha y luego buscar montos al final de la línea
+                var mDate = Regex.Match(line, @"^\s*(?<date>\d{2}/\d{2}/\d{2})\s+(?<rest>.+)$");
+                if (!mDate.Success)
                 {
                     i++;
                     continue;
                 }
 
-                // Parse de la línea principal
-                var dateS = m.Groups["date"].Value;
-                var desc = m.Groups["desc"].Value.Trim();
-                var rref = m.Groups["ref"].Value.Trim();
-                var amtS = m.Groups["amount"].Value.Trim();
-                var balS = m.Groups["balance"].Value.Trim();
+                var dateS = mDate.Groups["date"].Value;
+                var rest = mDate.Groups["rest"].Value.Trim();
+
+                // Buscar montos al final de la línea. Supervielle suele tener [Importe] [Saldo] o [Saldo]
+                var moneyMatches = Regex.Matches(rest, @"\d{1,3}(?:\.\d{3})*,\d{2}-?");
+                if (moneyMatches.Count < 1)
+                {
+                    i++;
+                    continue;
+                }
+
+                string amtS, balS, desc;
+                if (moneyMatches.Count >= 2)
+                {
+                    // Tenemos al menos dos montos (Importe y Saldo)
+                    var mBalance = moneyMatches[^1];
+                    var mAmount = moneyMatches[^2];
+                    
+                    balS = mBalance.Value;
+                    amtS = mAmount.Value;
+                    desc = rest.Substring(0, mAmount.Index).Trim();
+                }
+                else
+                {
+                    // Solo un monto (probablemente Saldo, común en algunas líneas)
+                    var mBalance = moneyMatches[0];
+                    balS = mBalance.Value;
+                    amtS = "0,00";
+                    desc = rest.Substring(0, mBalance.Index).Trim();
+                }
 
                 var date = ParseDmy(dateS) ?? default;
-                var amtAbs = ParseArAmount(amtS) ?? 0m;
+                var amtValue = ParseArAmount(amtS) ?? 0m;
+                var amtAbs = Math.Abs(amtValue);
 
-                decimal? bal = ParseArAmount(balS.TrimEnd('-'));
-                if (balS.EndsWith("-", StringComparison.Ordinal)) bal = -(bal ?? 0m);
+                // Limpieza de descripción (quitar basura al final si quedó algo antes del monto)
+                desc = Regex.Replace(desc, @"\s{2,}.*$", "").Trim();
+                
+                if (desc.Equals("SUBTOTAL", StringComparison.OrdinalIgnoreCase))
+                {
+                    i++;
+                    continue;
+                }
 
-                var fullDesc = string.IsNullOrWhiteSpace(rref) ? desc : $"{desc} | REF:{rref}";
+                decimal? bal = ParseArAmount(balS);
+
+                var fullDesc = desc;
 
                 // Importe con signo (intentamos deducirlo con delta de saldos)
-                decimal signedAmount = amtAbs;
+                decimal signedAmount = amtValue;
                 if (prevBal.HasValue && bal.HasValue)
                 {
                     var delta = bal.Value - prevBal.Value;
-                    if (Math.Abs(delta - amtAbs) <= 0.05m)
+                    if (Math.Abs(delta - amtValue) <= 0.05m)
                         signedAmount = delta;
                     else
                         signedAmount = Math.Sign(delta) * amtAbs;
@@ -369,129 +421,127 @@ namespace AccountCore.Services.Parser.Parsers
             if (DIAGNOSTIC && currencyMap.Count > 0)
                 result.Warnings.Add($"[currency.map] {string.Join(", ", currencyMap.Select(kv => kv.Key + "→" + kv.Value))}");
 
-            // Slices por cuenta
-            var slices = new List<(string account, string? cbu, string slice)>();
+            // 1. Agrupar regiones por número de cuenta para evitar duplicados por página
+            var accountGroups = new Dictionary<string, List<string>>();
             for (int i = 0; i < anchors.Count; i++)
             {
                 var acc = anchors[i].Account;
                 var start = anchors[i].StartIdx;
                 var end = (i + 1 < anchors.Count) ? anchors[i + 1].StartIdx : normalized.Length;
                 var slice = Slice(normalized, start, end);
-                var cbu = FindCbu(slice);
-                slices.Add((acc, cbu, slice));
+                
+                if (!accountGroups.ContainsKey(acc)) accountGroups[acc] = new List<string>();
+                accountGroups[acc].Add(slice);
             }
 
             if (DIAGNOSTIC)
+                result.Warnings.Add($"[accounts.detected] {accountGroups.Count} unique accounts");
+
+            // 2. Procesar cada cuenta única consolidando sus páginas
+            foreach (var kvp in accountGroups)
             {
-                var list = string.Join(", ", slices.Select(s => $"{s.account}{(string.IsNullOrEmpty(s.cbu) ? "" : $"(CBU:{s.cbu})")}"));
-                result.Warnings.Add($"[accounts.detected] {slices.Count}: {list}");
-            }
+                var account = kvp.Key;
+                var slices = kvp.Value;
+                
+                var allTxs = new List<Transaction>();
+                decimal? firstOpening = null;
+                decimal? lastClosing = null;
+                string currency = "ARS";
 
-            // Construcción de cuentas
-            int idx = 0;
-            foreach (var (account, cbu, slice) in slices)
-            {
-                var currency = InferCurrency(slice, account, currencyMap);
-                var region = ExtractMovementsRegion(slice);
+                foreach (var slice in slices)
+                {
+                    // Detectar saldos de este slice (página)
+                    decimal? sliceOpening = null;
+                    decimal? sliceClosing = null;
+                    
+                    var region = ExtractMovementsRegion(slice);
 
-                decimal? opening = null, closing = null;
-                var m1 = RxOpeningBalance.Match(region);
-                if (m1.Success) opening = ParseArAmount(m1.Groups[1].Value);
+                    var m1 = RxOpeningBalance.Match(region);
+                    if (m1.Success) sliceOpening = ParseArAmount(m1.Groups["val"].Value + m1.Groups["sign"].Value);
 
-                var m2 = RxClosingBalance.Match(region);
-                if (m2.Success) closing = ParseArAmount(m2.Groups[1].Value);
+                    var m2 = RxClosingBalance.Match(region);
+                    if (m2.Success) sliceClosing = ParseArAmount(m2.Groups["val"].Value + m2.Groups["sign"].Value);
 
-                var txs = BuildTransactionsFromRegion(region, account, result.Warnings).ToList();
+                    // El opening es el de la primera página que lo tenga
+                    if (!firstOpening.HasValue && sliceOpening.HasValue) firstOpening = sliceOpening;
+                    
+                    // El closing es el de la última página que lo tenga
+                    if (sliceClosing.HasValue) lastClosing = sliceClosing;
 
-                // === Post-procesado mínimo: marcar sospechosas + sugerir importes ===
+                    if (currency == "ARS") // Solo intentar inferir si no es USD
+                        currency = InferCurrency(slice, account, currencyMap);
+
+                    // Usar el saldo de la última transacción del slice anterior como inicial para el actual
+                    decimal? lastKnownBal = allTxs.LastOrDefault()?.Balance ?? firstOpening;
+                    var pageTxs = BuildTransactionsFromRegion(region, account, result.Warnings, lastKnownBal);
+                    
+                    // Deduplicación básica: evitar re-agregar transacciones que ya existen (por fecha, monto y saldo)
+                    foreach (var tx in pageTxs)
+                    {
+                        bool exists = allTxs.Any(t => 
+                            t.Date == tx.Date && 
+                            Math.Abs(t.Amount - tx.Amount) < 0.01m && 
+                            Math.Abs(t.Balance - tx.Balance) < 0.01m &&
+                            t.Description == tx.Description);
+                        
+                        if (!exists)
+                            allTxs.Add(tx);
+                    }
+                }
+
+                // === Post-procesado: marcar sospechosas + sugerir importes ===
                 const decimal TOL = 0.01m;
                 var esAr = CultureInfo.GetCultureInfo("es-AR");
 
-                // Limpieza menor
-                foreach (var tx in txs)
+                foreach (var tx in allTxs)
                 {
                     if (!string.IsNullOrWhiteSpace(tx.Description))
                     {
-                        tx.Description = tx.Description
-                            .Replace("<<PAGE:5>>>", "")
-                            .Replace("<<PAGE:4>>>", "")
-                            .Replace("<<PAGE:3>>>", "")
-                            .Replace("<<PAGE:2>>>", "")
-                            .Replace("<<PAGE:1>>>", "")
-                            .Trim();
+                        tx.Description = Regex.Replace(tx.Description, @"<<PAGE:\d+>>>", "").Trim();
                     }
                 }
 
                 // Chequeo contra saldo impreso → sugerir importe para reconciliar
-                decimal running = opening ?? 0m;
-                for (int iTx = 0; iTx < txs.Count; iTx++)
+                decimal running = firstOpening ?? 0m;
+                for (int iTx = 0; iTx < allTxs.Count; iTx++)
                 {
-                    var tx = txs[iTx];
+                    var tx = allTxs[iTx];
                     var suggested = tx.Balance - running;
 
                     if (Math.Abs(suggested - tx.Amount) > TOL)
                     {
                         tx.IsSuspicious = true;
                         tx.SuggestedAmount = suggested;
-                        if (DIAGNOSTIC)
-                        {
-                            result.Warnings.Add(
-                                $"[suspicious:{account}] {tx.Date:dd/MM/yy} '{tx.Description}' " +
-                                $"importe={tx.Amount.ToString("N2", esAr)} no cuadra con saldo impreso " +
-                                $"→ sugerido={suggested.ToString("N2", esAr)}");
-                        }
                     }
 
-                    // avanzar usando el saldo impreso del banco como guía
+                    // Avanzar usando el saldo impreso del banco como guía
                     running = tx.Balance;
 
-                    // salto raro a 0 con importe chico
+                    // Salto raro a 0 con importe chico
                     if (iTx > 0)
                     {
-                        var prevBal = txs[iTx - 1].Balance;
+                        var prevBal = allTxs[iTx - 1].Balance;
                         var bal = tx.Balance;
                         if (Math.Abs(prevBal) > 1_000_000m &&
                             Math.Abs(prevBal) > 10m * Math.Abs(tx.Amount) &&
                             Math.Abs(bal) < 0.01m)
                         {
                             tx.IsSuspicious = true;
-                            if (DIAGNOSTIC)
-                                result.Warnings.Add($"[suspicious:{account}] {tx.Date:dd/MM/yy} '{tx.Description}' salto a $0 con importe pequeño.");
                         }
-                    }
-                }
-
-                // c) Conciliación general (solo warning textual, no toca modelos)
-                if (opening.HasValue && closing.HasValue)
-                {
-                    var sumAmounts = txs.Sum(t => t.Amount);
-                    var expected = opening.Value + sumAmounts;
-                    if (Math.Abs(expected - closing.Value) > TOL && DIAGNOSTIC)
-                    {
-                        result.Warnings.Add(
-                            $"[reconcile] {account} opening={opening.Value.ToString("N2", esAr)} " +
-                            $"sum={sumAmounts.ToString("N2", esAr)} expected={expected.ToString("N2", esAr)} " +
-                            $"closing={closing.Value.ToString("N2", esAr)}");
-                    }
-                }
-
-                if (DIAGNOSTIC)
-                {
-                    result.Warnings.Add($"[account.slice #{++idx}] account={account} currency~{currency} len={slice.Length}");
-                    if (opening.HasValue || closing.HasValue)
-                    {
-                        result.Warnings.Add($"[balances.detected] {account} opening={opening?.ToString("N2", esAr)} closing={closing?.ToString("N2", esAr)}");
                     }
                 }
 
                 result.Statement.Accounts.Add(new AccountStatement
                 {
                     AccountNumber = account,
-                    Transactions = txs,
-                    OpeningBalance = opening,
-                    ClosingBalance = closing,
+                    Transactions = allTxs,
+                    OpeningBalance = firstOpening,
+                    ClosingBalance = lastClosing,
                     Currency = currency
                 });
+
+                if (DIAGNOSTIC)
+                    result.Warnings.Add($"[account.merged] account={account} txs={allTxs.Count} opening={firstOpening} closing={lastClosing}");
             }
 
             if (DIAGNOSTIC)

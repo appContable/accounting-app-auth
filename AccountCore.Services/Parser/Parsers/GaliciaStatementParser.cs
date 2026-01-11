@@ -609,13 +609,31 @@ namespace AccountCore.Services.Parser.Parsers
             int pageCutRetriedCount = 0;
             int dashTrimmedBeforeMoneyCount = 0;
 
-            // Normalizaciones de fecha
+            // 1. Normalizar formato dd / mm / yy -> dd/mm/yy
             full = Regex.Replace(
                 full,
                 @"(?<!\d)(\d{1,2})\s*/\s*(\d{1,2})\s*/\s*(\d{2})(?!\d)",
                 "$1/$2/$3",
                 RegexOptions.Compiled);
 
+            // 2. Si la fecha no está al inicio de la línea, movemos el texto previo (montos/desc)
+            // a después de la fecha para que queden en el bloque que inicia con esa fecha.
+            // Esto resuelve casos de wrap-around donde los montos quedan al final de la línea física anterior.
+            full = string.Join("\n", full.Split('\n').Select(line =>
+            {
+                var m = Regex.Match(line, @"^(?<pre>.+?)\b(?<date>\d{1,2}/\d{1,2}/\d{2})\b");
+                if (m.Success)
+                {
+                    var pre = m.Groups["pre"].Value;
+                    if (!string.IsNullOrWhiteSpace(pre) && !pre.Contains("<<PAGE:"))
+                    {
+                        return m.Groups["date"].Value + " " + pre + line.Substring(m.Length);
+                    }
+                }
+                return line;
+            }));
+
+            // 3. Forzar salto de línea para cualquier fecha que haya quedado pegada
             full = Regex.Replace(
                 full,
                 @"(?<![\r\n])(?<!^)(?<!\d)(\d{1,2}/\d{1,2}/\d{2})",
@@ -696,7 +714,8 @@ namespace AccountCore.Services.Parser.Parsers
                         .Where(line =>
                             !line.TrimStart().StartsWith("<<PAGE:", StringComparison.OrdinalIgnoreCase) &&
                             !line.TrimStart().StartsWith("Página", StringComparison.OrdinalIgnoreCase) &&
-                            !line.TrimStart().StartsWith("Total $", StringComparison.OrdinalIgnoreCase) &&
+                            !line.Trim().StartsWith("Total", StringComparison.OrdinalIgnoreCase) &&
+                            !line.Trim().EndsWith("Total", StringComparison.OrdinalIgnoreCase) &&
                             line.IndexOf("Consolidado de", StringComparison.OrdinalIgnoreCase) < 0
                         )
                 ).TrimEnd();
