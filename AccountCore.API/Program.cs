@@ -98,6 +98,7 @@ builder.Services.AddScoped<IMongoDatabase>(sp =>
 
 // ---- Repos/servicios del Parser ----
 builder.Services.AddScoped<IParseUsageRepository, ParseUsageRepository>();
+builder.Services.AddScoped<IAppVersionRepository, AppVersionRepository>();
 builder.Services.AddScoped<IUserCategoryRuleRepository, UserCategoryRuleRepository>();
 builder.Services.AddScoped<IBankCategoryRuleRepository, BankCategoryRuleRepository>();
 builder.Services.AddScoped<ICategorizationService, CategorizationService>();
@@ -144,8 +145,26 @@ builder.Services.AddAuthentication(options =>
 // CORS
 builder.Services.AddCors(p => p.AddPolicy("corsapp", policy =>
 {
-    policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader();
+    policy.WithOrigins(builder.Configuration["Api:UiUrlBase"] ?? "http://localhost:4200")
+          .AllowAnyMethod()
+          .AllowAnyHeader()
+          .AllowCredentials()
+          .SetIsOriginAllowed(origin => true); // Importante para dispositivos móviles en redes locales/celulares
 }));
+
+// Configurar límites de subida (para PDFs grandes en móviles)
+builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(x =>
+{
+    x.ValueLengthLimit = int.MaxValue;
+    x.MultipartBodyLengthLimit = 100 * 1024 * 1024; // 100MB
+    x.MultipartHeadersLengthLimit = int.MaxValue;
+});
+
+// Kestrel limits
+builder.WebHost.ConfigureKestrel(serverOptions =>
+{
+    serverOptions.Limits.MaxRequestBodySize = 100 * 1024 * 1024; // 100MB
+});
 
 // Automapper singleton
 var mapperConfig = new MapperConfiguration(cfg => cfg.AddProfile(new MappingProfile()));

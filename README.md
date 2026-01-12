@@ -254,7 +254,7 @@ file: [archivo PDF]
 **Version Response**
 ```json
 {
-  "version": "1.0.2",
+  "version": "1.1.0",
   "buildDate": "2024-01-15T10:30:00Z",
   "buildNumber": "2",
   "assemblyVersion": "1.0.2.0",
@@ -268,7 +268,7 @@ file: [archivo PDF]
 **Simple Version Response**
 ```json
 {
-  "version": "1.0.2",
+  "version": "1.1.0",
   "buildDate": "2024-01-15T10:30:00Z"
 }
 ```

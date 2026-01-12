@@ -1,0 +1,22 @@
+[
+  {
+    "version": "1.0.2",
+    "releaseDate": "2024-01-15T10:30:00Z",
+    "changes": [
+      "Initial production release",
+      "Support for Galicia and Supervielle PDF parsing",
+      "Rule-based categorization system",
+      "JWT Authentication"
+    ]
+  },
+  {
+    "version": "1.1.0",
+    "releaseDate": "2026-01-11T23:30:00Z",
+    "changes": [
+      "Standardized SemVer nomenclature",
+      "Implemented version tracking in database",
+      "Added evolution/changelog documentation",
+      "Improved version information endpoints"
+    ]
+  }
+]
