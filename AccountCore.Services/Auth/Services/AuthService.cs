@@ -61,12 +61,18 @@ namespace AccountCore.Services.Auth.Services
                 }
                 else if (username.IsValidCuit())
                 {
-                    user = await _userRepository.GetByCuitAsync(username);
+                    var digitsOnly = new string(username.Where(char.IsDigit).ToArray());
+                    user = await _userRepository.GetByCuitAsync(digitsOnly);
                 }
 
                 if (user == null)
                 {
                     return ServiceResult<ReturnTokenDTO>.Error(ErrorsKey.Argument, "Invalid User/Password");
+                }
+
+                if (user.IsActive != true)
+                {
+                    return ServiceResult<ReturnTokenDTO>.Error(ErrorsKey.Argument, "User is not active");
                 }
 
                 if (user.IsLock)

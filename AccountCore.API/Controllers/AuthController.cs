@@ -30,21 +30,31 @@ namespace AccountCore.API.Controllers
         [SwaggerResponse(StatusCodes.Status400BadRequest, "Invalid credentials or validation errors")]
         public async Task<IActionResult> Authentication([FromBody] AuthenticationDTO user)
         {
-            var validationResults = ValidationExtensions.ValidateObject(user);
-            if (validationResults.Any())
+            try
             {
-                var errors = validationResults.Select(v => v.ErrorMessage).ToList();
-                return BadRequest(errors);
+                if (user == null || string.IsNullOrEmpty(user.Login) || string.IsNullOrEmpty(user.Password))
+                {
+                    return BadRequest(new { message = "Login and Password are required" });
+                }
+
+                Console.WriteLine($"[AUTH] Attempting login for: {user.Login}");
+
+                var token = await _authService.Authentication(user.Login, user.Password);
+
+                if (token.Success)
+                {
+                    Console.WriteLine($"[AUTH] Login successful for: {user.Login}");
+                    return Ok(token.Value);
+                }
+
+                Console.WriteLine($"[AUTH] Login failed for: {user.Login}. Errors: {string.Join(", ", token.Errors.Select(e => $"{e.Key}: {e.Value}"))}");
+                return BadRequest(new { message = "Authentication failed", errors = token.Errors });
             }
-
-            var token = await _authService.Authentication(user.Login!, user.Password!);
-
-            if (token.Success)
+            catch (Exception ex)
             {
-                return Ok(token.Value);
+                Console.WriteLine($"[AUTH] CRITICAL ERROR: {ex.Message}");
+                return StatusCode(500, new { message = "Internal error during authentication", detail = ex.Message });
             }
-
-            return BadRequest(token.Errors);
         }
 
         [AllowAnonymous]

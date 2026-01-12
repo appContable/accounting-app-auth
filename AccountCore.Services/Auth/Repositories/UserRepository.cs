@@ -17,13 +17,13 @@ namespace AccountCore.Services.Auth.Repositories
         public async Task<User?> GetByEmailAsync(string email)
         {
             return await _context.Users
-                .FirstOrDefaultAsync(u => u.Email.ToLower() == email.ToLower() && u.IsActive == true);
+                .FirstOrDefaultAsync(u => u.Email.ToLower() == email.ToLower());
         }
 
         public async Task<User?> GetByCuitAsync(string cuit)
         {
             return await _context.Users
-                .FirstOrDefaultAsync(u => u.Cuit == cuit && u.IsActive == true);
+                .FirstOrDefaultAsync(u => u.Cuit == cuit);
         }
 
         public async Task<User?> GetByIdAsync(string id)

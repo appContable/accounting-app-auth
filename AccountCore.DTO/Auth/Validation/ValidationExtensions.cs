@@ -44,8 +44,9 @@ namespace AccountCore.DTO.Auth.Validation
                 return false;
             }
 
-            var trimmed = cuit.Trim();
-            return trimmed.Length == 11 && trimmed.All(char.IsDigit);
+            // Remove common separators
+            var digitsOnly = new string(cuit.Where(char.IsDigit).ToArray());
+            return digitsOnly.Length == 11;
         }
 
         public static List<ValidationResult> ValidateObject(object obj)

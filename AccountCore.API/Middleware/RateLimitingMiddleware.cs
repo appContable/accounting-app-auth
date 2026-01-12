@@ -19,8 +19,17 @@ namespace AccountCore.API.Middleware
 
         public async Task InvokeAsync(HttpContext context)
         {
+            // No aplicar límites a peticiones OPTIONS (pre-vuelo CORS)
+            if (HttpMethods.IsOptions(context.Request.Method))
+            {
+                await _next(context);
+                return;
+            }
+
             var clientId = GetClientIdentifier(context);
             var now = DateTime.UtcNow;
+
+            _logger.LogDebug("RateLimiting: Request from {ClientId} to {Path}", clientId, context.Request.Path);
 
             // Clean old entries periodically
             if (now.Second == 0) // Clean every minute
@@ -38,7 +47,8 @@ namespace AccountCore.API.Middleware
                         await context.Response.WriteAsync("Rate limit exceeded. Please try again later.");
                         return;
                     }
-                    _requests[clientId] = (now, requestInfo.count + 1);
+                    // Mantener la hora del primer request para una ventana fija, no deslizarla
+                    _requests[clientId] = (requestInfo.lastRequest, requestInfo.count + 1);
                 }
                 else
                 {
