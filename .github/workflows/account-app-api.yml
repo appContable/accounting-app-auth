@@ -25,6 +25,10 @@ jobs:
       with:
         dotnet-version: ${{ env.DOTNET_CORE_VERSION }}
     - name: Update Version and Changelog
+      env:
+        COMMITS_JSON: ${{ toJson(github.event.commits) }}
+        PR_TITLE: ${{ github.event.pull_request.title }}
+        PR_BODY: ${{ github.event.pull_request.body }}
       run: |
         $version = "${{ env.BUILD_VERSION }}"
         $date = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"
@@ -33,19 +37,20 @@ jobs:
         # Intentar obtener mensajes de commits o info del PR
         try {
             if ("${{ github.event_name }}" -eq "push") {
-                $commitsJson = '${{ toJson(github.event.commits) }}'
-                $commits = $commitsJson | ConvertFrom-Json
-                if ($commits -and $commits.Count -gt 0) {
-                    foreach ($c in $commits) {
-                        # Tomamos el mensaje completo (sin recortar la primera línea)
-                        $msg = $c.message.Trim()
-                        if ($msg) { $changes += $msg }
+                $commitsJson = $env:COMMITS_JSON
+                if ($commitsJson) {
+                    $commits = $commitsJson | ConvertFrom-Json
+                    if ($commits -and $commits.Count -gt 0) {
+                        foreach ($c in $commits) {
+                            $msg = $c.message.Trim()
+                            if ($msg) { $changes += $msg }
+                        }
                     }
                 }
             } elseif ("${{ github.event_name }}" -eq "pull_request") {
-                $prTitle = "${{ github.event.pull_request.title }}"
-                $prBody = "${{ github.event.pull_request.body }}"
-                $changes += "PR: $prTitle"
+                $prTitle = $env:PR_TITLE
+                $prBody = $env:PR_BODY
+                if ($prTitle) { $changes += "PR: $prTitle" }
                 if ($prBody) { $changes += $prBody }
             }
         } catch { }
