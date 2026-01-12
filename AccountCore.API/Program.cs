@@ -166,11 +166,7 @@ builder.Services.AddSingleton(mapperConfig.CreateMapper());
 
 var app = builder.Build();
 
-<<<<<<< HEAD
-// Middleware
-=======
 // 1. CORS debe ser lo PRIMERO para manejar peticiones OPTIONS de navegadores
->>>>>>> develop
 app.UseCors("corsapp");
 
 app.MapGet("/debug/parser-config", (IOptions<ParserSettings> opts) => Results.Json(opts.Value));
