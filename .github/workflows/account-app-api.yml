@@ -12,22 +12,67 @@ env:
   CONFIGURATION: Release
   DOTNET_CORE_VERSION: 8.0.x
   WORKING_DIRECTORY: AccountCore.API
-  BUILD_VERSION: 1.0.${{ github.run_number }}
+  BUILD_VERSION: 1.1.${{ github.run_number }}
 jobs:
   build:
     runs-on: windows-latest
     steps:
     - uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
     - name: Setup .NET Core
       uses: actions/setup-dotnet@v3
       with:
         dotnet-version: ${{ env.DOTNET_CORE_VERSION }}
-    - name: Set version in appsettings
+    - name: Update Version and Changelog
       run: |
-        $content = Get-Content "AccountCore.API/appsettings.json" -Raw
-        $json = $content | ConvertFrom-Json
-        $json.Api.Version = "${{ env.BUILD_VERSION }}"
-        $json | ConvertTo-Json -Depth 10 | Set-Content "AccountCore.API/appsettings.json"
+        $version = "${{ env.BUILD_VERSION }}"
+        $date = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"
+        $changes = @()
+        
+        # Intentar obtener mensajes de commits o info del PR
+        try {
+            if ("${{ github.event_name }}" -eq "push") {
+                $commitsJson = '${{ toJson(github.event.commits) }}'
+                $commits = $commitsJson | ConvertFrom-Json
+                if ($commits -and $commits.Count -gt 0) {
+                    foreach ($c in $commits) {
+                        # Tomamos el mensaje completo (sin recortar la primera línea)
+                        $msg = $c.message.Trim()
+                        if ($msg) { $changes += $msg }
+                    }
+                }
+            } elseif ("${{ github.event_name }}" -eq "pull_request") {
+                $prTitle = "${{ github.event.pull_request.title }}"
+                $prBody = "${{ github.event.pull_request.body }}"
+                $changes += "PR: $prTitle"
+                if ($prBody) { $changes += $prBody }
+            }
+        } catch { }
+
+        if ($changes.Count -eq 0) {
+            $changes += "Update and maintenance"
+        }
+
+        # 1. Update appsettings.json
+        $appsettingsPath = "AccountCore.API/appsettings.json"
+        $appsettings = Get-Content $appsettingsPath -Raw | ConvertFrom-Json
+        $appsettings.Api.Version = $version
+        $appsettings | ConvertTo-Json -Depth 10 | Set-Content $appsettingsPath
+
+        # 2. Update changelog.json
+        $changelogPath = "AccountCore.API/changelog.json"
+        if (Test-Path $changelogPath) {
+            $changelog = Get-Content $changelogPath -Raw | ConvertFrom-Json
+            $newEntry = [PSCustomObject]@{
+                version = $version
+                releaseDate = $date
+                changes = $changes
+            }
+            # Prepend nueva versión
+            $updatedChangelog = @($newEntry) + $changelog
+            $updatedChangelog | ConvertTo-Json -Depth 10 | Set-Content $changelogPath
+        }
       shell: powershell
     - name: Restore
       run: dotnet restore "${{ env.WORKING_DIRECTORY }}"

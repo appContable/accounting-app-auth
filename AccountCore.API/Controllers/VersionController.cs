@@ -2,6 +2,8 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using Swashbuckle.AspNetCore.Annotations;
 using System.Reflection;
+using System.Text.Json;
+using AccountCore.Services.Parser.Interfaces;
 
 namespace AccountCore.API.Controllers
 {
@@ -14,10 +16,14 @@ namespace AccountCore.API.Controllers
     public class VersionController : ControllerBase
     {
         private readonly IConfiguration _configuration;
+        private readonly IAppVersionRepository _versionRepository;
+        private readonly IWebHostEnvironment _env;
 
-        public VersionController(IConfiguration configuration)
+        public VersionController(IConfiguration configuration, IAppVersionRepository versionRepository, IWebHostEnvironment env)
         {
             _configuration = configuration;
+            _versionRepository = versionRepository;
+            _env = env;
         }
 
         /// <summary>
@@ -26,7 +32,7 @@ namespace AccountCore.API.Controllers
         [HttpGet]
         [SwaggerOperation(Summary = "Get API version information")]
         [SwaggerResponse(StatusCodes.Status200OK, "Version information")]
-        public IActionResult GetVersion()
+        public async Task<IActionResult> GetVersion()
         {
             var assembly = Assembly.GetExecutingAssembly();
             var assemblyVersion = assembly.GetName().Version?.ToString() ?? "Unknown";
@@ -34,17 +40,45 @@ namespace AccountCore.API.Controllers
             var buildDate = GetBuildDate(assembly);
             var buildNumber = configVersion.Split('.').LastOrDefault() ?? "0";
 
+            var latestChange = await GetLatestChange();
+
             return Ok(new
             {
                 version = configVersion,
                 buildDate = buildDate.ToString("yyyy-MM-ddTHH:mm:ssZ"),
                 buildNumber = buildNumber,
                 assemblyVersion = assemblyVersion,
-                environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Unknown",
+                environment = _env.EnvironmentName,
                 framework = Environment.Version.ToString(),
                 machineName = Environment.MachineName,
-                timestamp = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
+                timestamp = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                changelog = latestChange
             });
+        }
+
+        /// <summary>
+        /// Gets full version history and evolution
+        /// </summary>
+        [HttpGet("history")]
+        [SwaggerOperation(Summary = "Get full version history and evolution")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Full version history")]
+        public async Task<IActionResult> GetHistory()
+        {
+            var history = await _versionRepository.GetAllAsync();
+            if (history != null && history.Any())
+            {
+                return Ok(history);
+            }
+
+            // Fallback to changelog.json if DB is empty
+            var changelogPath = Path.Combine(_env.ContentRootPath, "changelog.json");
+            if (System.IO.File.Exists(changelogPath))
+            {
+                var content = await System.IO.File.ReadAllTextAsync(changelogPath);
+                return Ok(JsonSerializer.Deserialize<object>(content));
+            }
+
+            return Ok(new List<object>());
         }
 
         /// <summary>
@@ -65,6 +99,23 @@ namespace AccountCore.API.Controllers
                 buildDate = buildDate.ToString("yyyy-MM-ddTHH:mm:ssZ")
             });
         }
+
+        private async Task<object?> GetLatestChange()
+        {
+            try
+            {
+                var changelogPath = Path.Combine(_env.ContentRootPath, "changelog.json");
+                if (System.IO.File.Exists(changelogPath))
+                {
+                    var content = await System.IO.File.ReadAllTextAsync(changelogPath);
+                    var logs = JsonSerializer.Deserialize<List<JsonElement>>(content);
+                    return logs?.FirstOrDefault();
+                }
+            }
+            catch { /* Ignore */ }
+            return null;
+        }
+
         private static DateTime GetBuildDate(Assembly assembly)
         {
             try
