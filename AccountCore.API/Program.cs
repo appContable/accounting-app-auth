@@ -58,8 +58,16 @@ builder.Services.AddScoped<AuthContext>(sp =>
 });
 
 // Controllers + JSON
-builder.Services.AddControllers().AddJsonOptions(x =>
-    x.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles);
+builder.Services.AddControllers()
+    .ConfigureApiBehaviorOptions(options =>
+    {
+        options.SuppressModelStateInvalidFilter = true;
+    })
+    .AddJsonOptions(x =>
+{
+    x.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
+    x.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
+});
 
 // Swagger
 builder.Services.AddEndpointsApiExplorer();
@@ -107,18 +115,6 @@ builder.Services.AddScoped<IPdfParsingService, PdfParserService>();
 // Hosted services
 builder.Services.AddHostedService<MongoIndexHostedService>();
 
-// ==============================
-//   Identity con EF InMemory
-//   (quitamos EF-Mongo)
-// ==============================
-builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseInMemoryDatabase("AuthDb"));
-
-builder.Services
-    .AddIdentity<ApplicationUser, IdentityRole>()
-    .AddEntityFrameworkStores<ApplicationDbContext>()
-    .AddDefaultTokenProviders();
-
 // JWT
 var jwtSettings = builder.Configuration.GetSection("JWT").Get<JwtSettings>() ?? new JwtSettings();
 builder.Services.AddAuthentication(options =>
@@ -145,11 +141,7 @@ builder.Services.AddAuthentication(options =>
 // CORS
 builder.Services.AddCors(p => p.AddPolicy("corsapp", policy =>
 {
-    policy.WithOrigins(builder.Configuration["Api:UiUrlBase"] ?? "http://localhost:4200")
-          .AllowAnyMethod()
-          .AllowAnyHeader()
-          .AllowCredentials()
-          .SetIsOriginAllowed(origin => true); // Importante para dispositivos móviles en redes locales/celulares
+    policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader();
 }));
 
 // Configurar límites de subida (para PDFs grandes en móviles)
@@ -174,11 +166,14 @@ builder.Services.AddSingleton(mapperConfig.CreateMapper());
 
 var app = builder.Build();
 
+<<<<<<< HEAD
 // Middleware
+=======
+// 1. CORS debe ser lo PRIMERO para manejar peticiones OPTIONS de navegadores
+>>>>>>> develop
 app.UseCors("corsapp");
 
-// Rate limiting (before authentication)
-app.UseMiddleware<RateLimitingMiddleware>();
+app.MapGet("/debug/parser-config", (IOptions<ParserSettings> opts) => Results.Json(opts.Value));
 
 app.UseSwagger();
 app.UseSwaggerUI();
@@ -197,13 +192,16 @@ app.UseSwaggerUI();
 // }
 
 var httpsPort = builder.Configuration.GetValue<int?>("HttpsPort");
-if (httpsPort.HasValue)
+if (httpsPort.HasValue && !app.Environment.IsDevelopment())
 {
     app.UseHttpsRedirection();
 }
 
 app.UseAuthentication();
 app.UseAuthorization();
+
+// 2. Rate limiting (después de Auth para tener el UserId si existe)
+app.UseMiddleware<RateLimitingMiddleware>();
 
 app.MapControllers();
 app.Run();
